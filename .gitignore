@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+*.vsix
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.npmrc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Source maps (optional - uncomment to exclude)
+# *.map

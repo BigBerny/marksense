@@ -1,9 +1,12 @@
 import * as esbuild from "esbuild";
+import { sassPlugin } from "esbuild-sass-plugin";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isWatch = process.argv.includes("--watch");
-const isProduction = process.argv.includes("--production");
 
-/** @type {import('esbuild').BuildOptions} */
+/** @type {esbuild.BuildOptions} */
 const extensionConfig = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
@@ -12,29 +15,50 @@ const extensionConfig = {
   format: "cjs",
   platform: "node",
   target: "node18",
-  sourcemap: !isProduction,
-  minify: isProduction,
-  logLevel: "info",
+  sourcemap: true,
+  minify: !isWatch,
 };
 
-/** @type {import('esbuild').BuildOptions} */
+/** @type {esbuild.BuildOptions} */
 const webviewConfig = {
   entryPoints: ["src/webview/index.tsx"],
   bundle: true,
   outfile: "dist/webview.js",
-  format: "esm",
+  format: "iife",
   platform: "browser",
   target: "es2020",
-  sourcemap: !isProduction,
-  minify: isProduction,
-  logLevel: "info",
-  jsx: "automatic",
+  sourcemap: true,
+  minify: !isWatch,
   loader: {
-    ".css": "css",
+    ".tsx": "tsx",
+    ".ts": "ts",
+    ".png": "dataurl",
+    ".jpg": "dataurl",
+    ".svg": "dataurl",
   },
+  // Resolve @/ path alias to the literal @/ directory created by Tiptap CLI
+  alias: {
+    "@": path.resolve(__dirname, "@"),
+  },
+  plugins: [
+    sassPlugin({
+      type: "css",
+      filter: /\.scss$/,
+    }),
+  ],
   define: {
-    "process.env.NODE_ENV": isProduction ? '"production"' : '"development"',
+    "process.env.NODE_ENV": isWatch ? '"development"' : '"production"',
+    // Replace process.env references used by the template with empty strings.
+    // Actual values are injected at runtime via window.__SETTINGS__.
+    "process.env.TIPTAP_COLLAB_DOC_PREFIX": '""',
+    "process.env.TIPTAP_COLLAB_APP_ID": '""',
+    "process.env.TIPTAP_COLLAB_TOKEN": '""',
+    "process.env.TIPTAP_AI_APP_ID": '"__REPLACED_AT_RUNTIME__"',
+    "process.env.TIPTAP_AI_TOKEN": '"__REPLACED_AT_RUNTIME__"',
+    "process.env.USE_JWT_TOKEN_API_ENDPOINT": '""',
   },
+  // Ensure JSON imports work (for content.json etc.)
+  resolveExtensions: [".tsx", ".ts", ".jsx", ".js", ".json", ".scss", ".css"],
 };
 
 async function build() {
@@ -42,12 +66,13 @@ async function build() {
     const extCtx = await esbuild.context(extensionConfig);
     const webCtx = await esbuild.context(webviewConfig);
     await Promise.all([extCtx.watch(), webCtx.watch()]);
-    console.log("Watching for changes...");
+    console.log("[watch] Build started — watching for changes...");
   } else {
     await Promise.all([
       esbuild.build(extensionConfig),
       esbuild.build(webviewConfig),
     ]);
+    console.log("[build] Extension and webview built successfully.");
   }
 }
 

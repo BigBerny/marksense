@@ -1,9 +1,10 @@
 {
   "name": "markdown-tiptap-editor",
-  "displayName": "Tiptap Markdown Editor",
-  "description": "View and edit Markdown files in a beautiful Notion-like Tiptap editor with AI-powered autocorrection and inline predictions.",
+  "displayName": "Markdown Tiptap Editor",
+  "description": "View and edit Markdown files in a beautiful Notion-like Tiptap editor with AI assistance",
   "version": "0.1.0",
-  "publisher": "janisberneker",
+  "publisher": "your-publisher-name",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -20,6 +21,9 @@
         "selector": [
           {
             "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
           }
         ],
         "priority": "option"
@@ -31,17 +35,19 @@
         "markdownTiptap.aiAppId": {
           "type": "string",
           "default": "",
-          "description": "Your Tiptap AI App ID from https://cloud.tiptap.dev"
+          "description": "Tiptap Cloud AI App ID (from https://cloud.tiptap.dev)"
         },
         "markdownTiptap.aiToken": {
           "type": "string",
           "default": "",
-          "description": "Your Tiptap AI JWT token"
+          "description": "Tiptap Cloud AI JWT Token"
         },
         "markdownTiptap.autoSaveDelay": {
           "type": "number",
           "default": 300,
-          "description": "Delay in milliseconds before syncing editor changes to the file (debounce)."
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Debounce delay in milliseconds before syncing edits to the file"
         }
       }
     }
@@ -49,39 +55,63 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "vscode:prepublish": "node esbuild.mjs --production"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.85.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "esbuild": "^0.20.0",
-    "typescript": "^5.3.0"
+    "package": "vsce package"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@tiptap/core": "^3.0.0",
-    "@tiptap/react": "^3.0.0",
-    "@tiptap/pm": "^3.0.0",
-    "@tiptap/starter-kit": "^3.0.0",
-    "@tiptap/markdown": "^3.0.0",
-    "@tiptap/extension-placeholder": "^3.0.0",
-    "@tiptap/extension-task-list": "^3.0.0",
-    "@tiptap/extension-task-item": "^3.0.0",
-    "@tiptap/extension-highlight": "^3.0.0",
-    "@tiptap/extension-typography": "^3.0.0",
-    "@tiptap/extension-color": "^3.0.0",
-    "@tiptap/extension-text-style": "^3.0.0",
-    "@tiptap/extension-image": "^3.0.0",
-    "@tiptap/extension-table": "^3.0.0",
-    "@tiptap/extension-table-row": "^3.0.0",
-    "@tiptap/extension-table-cell": "^3.0.0",
-    "@tiptap/extension-table-header": "^3.0.0",
-    "@tiptap/extension-subscript": "^3.0.0",
-    "@tiptap/extension-superscript": "^3.0.0",
-    "@tiptap/extension-text-align": "^3.0.0",
-    "@tiptap/extension-code-block-lowlight": "^3.0.0",
-    "lowlight": "^3.1.0"
+    "@floating-ui/react": "^0.27.17",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@tiptap-pro/extension-ai": "^3.4.1",
+    "@tiptap-pro/provider": "^3.4.1",
+    "@tiptap/core": "^3.19.0",
+    "@tiptap/extension-collaboration": "^3.19.0",
+    "@tiptap/extension-collaboration-caret": "^3.19.0",
+    "@tiptap/extension-color": "^3.19.0",
+    "@tiptap/extension-drag-handle-react": "^3.19.0",
+    "@tiptap/extension-emoji": "^3.19.0",
+    "@tiptap/extension-highlight": "^3.19.0",
+    "@tiptap/extension-horizontal-rule": "^3.19.0",
+    "@tiptap/extension-image": "^3.19.0",
+    "@tiptap/extension-list": "^3.19.0",
+    "@tiptap/extension-mathematics": "^3.19.0",
+    "@tiptap/extension-mention": "^3.19.0",
+    "@tiptap/extension-placeholder": "^3.19.0",
+    "@tiptap/extension-subscript": "^3.19.0",
+    "@tiptap/extension-superscript": "^3.19.0",
+    "@tiptap/extension-table": "^3.19.0",
+    "@tiptap/extension-table-of-contents": "^3.19.0",
+    "@tiptap/extension-task-item": "^3.19.0",
+    "@tiptap/extension-task-list": "^3.19.0",
+    "@tiptap/extension-text-align": "^3.19.0",
+    "@tiptap/extension-text-style": "^3.19.0",
+    "@tiptap/extension-typography": "^3.19.0",
+    "@tiptap/extension-unique-id": "^3.19.0",
+    "@tiptap/extensions": "^3.19.0",
+    "@tiptap/markdown": "^3.19.0",
+    "@tiptap/pm": "^3.19.0",
+    "@tiptap/react": "^3.19.0",
+    "@tiptap/suggestion": "^3.19.0",
+    "is-hotkey": "^0.2.0",
+    "lodash.throttle": "^4.1.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-hotkeys-hook": "^5.2.4",
+    "react-textarea-autosize": "^8.5.9",
+    "tippy.js": "^6.3.7",
+    "yjs": "^13.6.29"
+  },
+  "devDependencies": {
+    "@ariakit/react": "^0.4.21",
+    "@tiptap/starter-kit": "^3.19.0",
+    "@types/is-hotkey": "^0.1.10",
+    "@types/lodash.throttle": "^4.1.9",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "^1.109.0",
+    "esbuild": "^0.27.3",
+    "esbuild-sass-plugin": "^3.6.0",
+    "sass": "^1.97.3",
+    "sass-embedded": "^1.97.3",
+    "typescript": "^5.9.3"
   }
 }
