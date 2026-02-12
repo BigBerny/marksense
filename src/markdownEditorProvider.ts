@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { execSync } from "child_process";
 
 /**
  * Parse a .env file at the given path into a key-value map.
@@ -41,6 +42,30 @@ function readEnvFile(extensionPath: string): Record<string, string> {
 
   // Extension .env takes priority, workspace .env as fallback
   return { ...wsEnv, ...extEnv };
+}
+
+/**
+ * Get the content of a file at HEAD using `git show`.
+ * Returns null if the file is untracked, the repo doesn't exist, etc.
+ */
+function getGitHeadContent(filePath: string): string | null {
+  try {
+    const dir = path.dirname(filePath);
+    // Get the repo root so we can compute the relative path
+    const repoRoot = execSync("git rev-parse --show-toplevel", {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    const relativePath = path.relative(repoRoot, filePath);
+    const content = execSync(`git show HEAD:${relativePath}`, {
+      cwd: repoRoot,
+      encoding: "utf-8",
+    });
+    return content;
+  } catch {
+    // Not a git repo, file untracked, or no commits yet
+    return null;
+  }
 }
 
 export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
@@ -122,6 +147,16 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
             await vscode.workspace.applyEdit(edit);
             isSelfEdit = false;
           }, autoSaveDelay);
+        }
+
+        // --- Diff support: return the HEAD version of the file ---
+        if (message.type === "requestDiff") {
+          const filePath = document.uri.fsPath;
+          const headContent = getGitHeadContent(filePath);
+          webviewPanel.webview.postMessage({
+            type: "diffContent",
+            content: headContent,
+          });
         }
       }
     );

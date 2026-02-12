@@ -88,10 +88,12 @@ export const NodeBackground = Extension.create<NodeBackgroundOptions>({
               if (this.options.useStyle) {
                 return {
                   style: `background-color: ${color}`,
+                  "data-has-bg": "true",
                 }
               } else {
                 return {
                   "data-background-color": color,
+                  "data-has-bg": "true",
                 }
               }
             },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
 import { createPortal } from "react-dom"
 
@@ -84,6 +84,10 @@ import { CorrectionPopup } from "./components/CorrectionPopup"
 // --- VS Code bridge ---
 import { vscode } from "./vscodeApi"
 
+// --- Diff ---
+import { DiffProvider, useDiff } from "./DiffContext"
+import { DiffView } from "./components/DiffView"
+
 /**
  * Content area that renders the editor with all menus and toolbars.
  * Expects to be inside an EditorContext.Provider.
@@ -133,9 +137,21 @@ function LoadingSpinner({ text = "Loading editor..." }: { text?: string }) {
 // ─── Main Editor ─────────────────────────────────────────────────────────────
 
 export function MarkdownEditor() {
+  return (
+    <DiffProvider>
+      <MarkdownEditorInner />
+    </DiffProvider>
+  )
+}
+
+function MarkdownEditorInner() {
   const isExternalUpdate = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
+  const { isDiffMode, headContent, setHeadContent } = useDiff()
+  const [currentMarkdown, setCurrentMarkdown] = useState(
+    window.__INITIAL_CONTENT__ || ""
+  )
 
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
 
@@ -248,6 +264,7 @@ export function MarkdownEditor() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = ed.getMarkdown()
+        setCurrentMarkdown(md)
         vscode.postMessage({ type: "edit", content: md })
       }, 150)
     },
@@ -282,13 +299,26 @@ export function MarkdownEditor() {
           // @ts-ignore
           contentType: "markdown",
         })
+        setCurrentMarkdown(message.content)
         requestAnimationFrame(() => {
           isExternalUpdate.current = false
         })
       }
+
+      // --- Diff: receive HEAD content from extension host ---
+      if (message.type === "diffContent") {
+        setHeadContent(message.content ?? null)
+      }
     },
-    [editor]
+    [editor, setHeadContent]
   )
+
+  // --- Request diff content when diff mode is toggled on ---
+  useEffect(() => {
+    if (isDiffMode) {
+      vscode.postMessage({ type: "requestDiff" })
+    }
+  }, [isDiffMode])
 
   useEffect(() => {
     window.addEventListener("message", handleMessage)
@@ -310,24 +340,40 @@ export function MarkdownEditor() {
     <div className="notion-like-editor-wrapper">
       <EditorContext.Provider value={{ editor }}>
         <NotionEditorHeader />
-        <div className="notion-like-editor-layout">
-          <MarkdownEditorContent editor={editor} />
-          <TocSidebar topOffset={48} />
-        </div>
 
-        <TableExtendRowColumnButtons />
-        <TableHandle />
-        <TableSelectionOverlay
-          showResizeHandles={true}
-          cellMenu={(props: any) => (
-            <TableCellHandleMenu
-              editor={props.editor}
-              onMouseDown={(e: any) => props.onResizeStart?.("br")(e)}
+        {isDiffMode && headContent !== null ? (
+          <div className="notion-like-editor-layout">
+            <div className="notion-like-editor-content">
+              <div className="tiptap ProseMirror notion-like-editor" style={{ flex: 1, padding: "3rem 3rem 30vh" }}>
+                <DiffView
+                  currentContent={currentMarkdown}
+                  headContent={headContent}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="notion-like-editor-layout">
+              <MarkdownEditorContent editor={editor} />
+              <TocSidebar topOffset={48} />
+            </div>
+
+            <TableExtendRowColumnButtons />
+            <TableHandle />
+            <TableSelectionOverlay
+              showResizeHandles={true}
+              cellMenu={(props: any) => (
+                <TableCellHandleMenu
+                  editor={props.editor}
+                  onMouseDown={(e: any) => props.onResizeStart?.("br")(e)}
+                />
+              )}
             />
-          )}
-        />
+          </>
+        )}
       </EditorContext.Provider>
-      <CorrectionPopup editor={editor} />
+      {!isDiffMode && <CorrectionPopup editor={editor} />}
     </div>
   )
 }

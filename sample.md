@@ -30,11 +30,13 @@ function greet(name) {
 
 ## Table
 
-| Feature | Status |
-|---------|--------|
-| Rich text editing | Done |
-| Markdown sync | Done |
-| AI assistance | Optional |
+
+| Feature           | Status   |
+| ----------------- | -------- |
+| Rich text editing | Done     |
+| Markdown sync     | Done     |
+| AI assistance     | Optional |
+
 
 ---
 

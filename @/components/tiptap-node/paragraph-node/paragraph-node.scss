@@ -263,6 +263,19 @@
 }
 
 /* =====================
+     BLOCK BACKGROUNDS
+     ===================== */
+.tiptap.ProseMirror {
+  [data-has-bg="true"] {
+    border-radius: var(--tt-radius-sm);
+    padding: 6px 12px;
+    margin-left: -12px;
+    margin-right: -12px;
+    transition: background-color var(--tt-transition-duration-default) var(--tt-transition-easing-default);
+  }
+}
+
+/* =====================
      DROPCURSOR
      ===================== */
 .prosemirror-dropcursor-block,
