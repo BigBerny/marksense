@@ -15,7 +15,7 @@ import { Superscript } from "@tiptap/extension-superscript"
 import { Subscript } from "@tiptap/extension-subscript"
 import { TextAlign } from "@tiptap/extension-text-align"
 import { Mathematics } from "@tiptap/extension-mathematics"
-import { Ai } from "@tiptap-pro/extension-ai"
+
 import { UniqueID } from "@tiptap/extension-unique-id"
 import { Emoji, gitHubEmojis } from "@tiptap/extension-emoji"
 import {
@@ -62,7 +62,7 @@ import { EmojiDropdownMenu } from "@/components/tiptap-ui/emoji-dropdown-menu"
 import { MentionDropdownMenu } from "@/components/tiptap-ui/mention-dropdown-menu"
 import { SlashDropdownMenu } from "@/components/tiptap-ui/slash-dropdown-menu"
 import { DragContextMenu } from "@/components/tiptap-ui/drag-context-menu"
-import { AiMenu } from "@/components/tiptap-ui/ai-menu"
+
 
 // --- Template components ---
 import { NotionEditorHeader } from "@/components/tiptap-templates/notion-like/notion-like-editor-header"
@@ -72,7 +72,7 @@ import { TocSidebar } from "@/components/tiptap-node/toc-node"
 
 // --- Lib ---
 import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
-import { TIPTAP_AI_APP_ID, TIPTAP_AI_TOKEN } from "@/lib/tiptap-collab-utils"
+
 
 // --- Styles ---
 import "@/components/tiptap-templates/notion-like/notion-like-editor.scss"
@@ -90,29 +90,8 @@ import { vscode } from "./vscodeApi"
  */
 function MarkdownEditorContent({ editor }: { editor: any }) {
   const {
-    aiGenerationIsLoading,
-    aiGenerationIsSelection,
-    aiGenerationHasMessage,
     isDragging,
   } = useUiEditorState(editor)
-
-  // Auto-accept AI generation when it completes on a selection
-  useEffect(() => {
-    if (!editor) return
-    if (
-      !aiGenerationIsLoading &&
-      aiGenerationIsSelection &&
-      aiGenerationHasMessage
-    ) {
-      editor.chain().focus().aiAccept().run()
-      editor.commands.resetUiState()
-    }
-  }, [
-    aiGenerationHasMessage,
-    aiGenerationIsLoading,
-    aiGenerationIsSelection,
-    editor,
-  ])
 
   useScrollToHash()
 
@@ -126,7 +105,6 @@ function MarkdownEditorContent({ editor }: { editor: any }) {
       style={{ cursor: isDragging ? "grabbing" : "auto" }}
     >
       <DragContextMenu />
-      <AiMenu />
       <EmojiDropdownMenu />
       <MentionDropdownMenu />
       <SlashDropdownMenu />
@@ -159,13 +137,10 @@ export function MarkdownEditor() {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
 
-  // Determine tokens: prefer runtime settings, fall back to env-injected
-  const aiToken = TIPTAP_AI_TOKEN || ""
-  const aiAppId = TIPTAP_AI_APP_ID || ""
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
 
   const editor = useEditor({
-    immediatelyRender: false,
+    immediatelyRender: true,
     editorProps: {
       attributes: {
         class: "notion-like-editor",
@@ -259,33 +234,7 @@ export function MarkdownEditor() {
         languages: ["en", "de", "fr"],
         autocorrect: true,
         predictions: true,
-        predictionDebounce: 400,
       }),
-      // --- Tiptap AI ---
-      ...(aiAppId
-        ? [
-            Ai.configure({
-              appId: aiAppId,
-              token: aiToken || undefined,
-              autocompletion: true,
-              showDecorations: true,
-              hideDecorationsOnStreamEnd: false,
-              onLoading: (context: any) => {
-                context.editor.commands.aiGenerationSetIsLoading(true)
-                context.editor.commands.aiGenerationHasMessage(false)
-              },
-              onChunk: (context: any) => {
-                context.editor.commands.aiGenerationSetIsLoading(true)
-                context.editor.commands.aiGenerationHasMessage(true)
-              },
-              onSuccess: (context: any) => {
-                const hasMessage = !!context.response
-                context.editor.commands.aiGenerationSetIsLoading(false)
-                context.editor.commands.aiGenerationHasMessage(hasMessage)
-              },
-            }),
-          ]
-        : []),
     ],
     // --- Initial content from the markdown file ---
     content: window.__INITIAL_CONTENT__ || "",

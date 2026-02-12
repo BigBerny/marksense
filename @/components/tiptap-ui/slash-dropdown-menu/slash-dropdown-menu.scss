@@ -9,13 +9,19 @@
 }
 
 span.tiptap-slash-decoration {
-  background: var(--tt-slash-decoration-bg-color);
-  border-radius: var(--tt-radius-xs);
-  outline: 5.5px solid var(--tt-slash-decoration-bg-color);
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  position: relative;
 }
 
 span.tiptap-slash-decoration::after {
+  font-size: 13px;
+  letter-spacing: normal;
   color: var(--tt-slash-decoration-color);
+  background: var(--tt-slash-decoration-bg-color);
+  border-radius: var(--tt-radius-xs);
+  padding: 2px 6px;
 }
 
 span.tiptap-slash-decoration.is-empty::after {

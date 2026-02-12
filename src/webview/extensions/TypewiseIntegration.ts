@@ -40,6 +40,8 @@ export interface TypewisePluginState {
   activeCorrection: CorrectionEntry | null
   prediction: { fullText: string; ghostText: string; cursorPos: number } | null
   decorations: DecorationSet
+  /** Position of the auto-inserted trailing space after a prediction, or -1 */
+  predictionSpacePos: number
 }
 
 // ─── Options ─────────────────────────────────────────────────────────────────
@@ -84,6 +86,32 @@ function nextCorrectionId(): string {
   return `tw-c-${++correctionIdCounter}`
 }
 
+// ─── User dictionary (never-correct list) ────────────────────────────────────
+
+const DICT_STORAGE_KEY = "typewise-user-dictionary"
+
+function loadDictionary(): Set<string> {
+  try {
+    const stored = localStorage.getItem(DICT_STORAGE_KEY)
+    return new Set(stored ? JSON.parse(stored) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+let userDictionary = loadDictionary()
+
+export function addToDictionary(word: string): void {
+  userDictionary.add(word.toLowerCase())
+  try {
+    localStorage.setItem(DICT_STORAGE_KEY, JSON.stringify([...userDictionary]))
+  } catch { /* quota exceeded — ignore */ }
+}
+
+export function isInDictionary(word: string): boolean {
+  return userDictionary.has(word.toLowerCase())
+}
+
 function getTextBeforeCursor(state: EditorState): { text: string; blockStart: number } {
   const { $from } = state.selection
   const blockStart = $from.start()
@@ -120,7 +148,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       apiBaseUrl: "https://api.typewise.ai/v0",
       apiToken: "",
       languages: ["en", "de", "fr"],
-      predictionDebounce: 400,
+      predictionDebounce: 0,
       autocorrect: true,
       predictions: true,
     }
@@ -132,10 +160,13 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
         const ps = typewisePluginKey.getState(editor.state)
         if (ps?.prediction) {
           const { ghostText, cursorPos } = ps.prediction
-          // Use insertText to preserve formatting context
           const { tr } = editor.state
-          tr.insertText(ghostText, cursorPos)
-          tr.setMeta(typewisePluginKey, { type: "clear-prediction" })
+          // Insert ghost text + trailing space
+          tr.insertText(ghostText + " ", cursorPos)
+          tr.setMeta(typewisePluginKey, {
+            type: "clear-prediction",
+            predictionSpacePos: cursorPos + ghostText.length,
+          })
           editor.view.dispatch(tr)
           return true
         }
@@ -162,6 +193,8 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     let predictionTimer: ReturnType<typeof setTimeout> | null = null
     let predictionRequestId = 0
     let correctionAbort: AbortController | null = null
+    let grammarAbort: AbortController | null = null
+    let grammarTimer: ReturnType<typeof setTimeout> | null = null
 
     // ── Cached ghost text DOM element (reused to avoid flicker) ──────
     let cachedGhostWrapper: HTMLSpanElement | null = null
@@ -237,6 +270,9 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           }
         }
 
+        // Skip corrections for words in the user dictionary
+        if (isInDictionary(originalWord)) return
+
         if (data.correctionType === "auto" && data.corrected_text && data.corrected_text !== data.original_text && charsToReplace > 0) {
           // Use the first suggestion for the replacement word
           const replacementWord = data.suggestions?.[0]?.correction || ""
@@ -283,6 +319,181 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       }
     }
 
+    // ── API: grammar correction ──────────────────────────────────────
+
+    const SENTENCE_END_PUNCTUATION = [".", "!", "?"]
+    const SENTENCE_END_RE = /([.!?])(\s|\n)|(?<![.!?\n *])\s*\n/
+
+    /**
+     * Extract the sentence around (or ending at) the given position.
+     * Returns { text, from, to } where from/to are document positions.
+     */
+    function getSentenceAtPos(state: EditorState, pos: number): { text: string; from: number; to: number } | null {
+      const $pos = state.doc.resolve(pos)
+      const blockStart = $pos.start()
+      const blockEnd = $pos.end()
+      const blockText = state.doc.textBetween(blockStart, blockEnd, "")
+
+      if (blockText.trim().length < 3) return null
+
+      const posInBlock = pos - blockStart
+
+      // 1. Find the end of the sentence at or before the cursor position.
+      //    If the cursor is right after ".", the sentence end is at the cursor.
+      let sentenceEnd = -1
+      // First check: is there sentence-ending punctuation at or before cursor?
+      for (let i = Math.min(posInBlock, blockText.length) - 1; i >= 0; i--) {
+        if (SENTENCE_END_PUNCTUATION.includes(blockText[i])) {
+          sentenceEnd = i + 1
+          break
+        }
+      }
+      // If no punctuation before cursor, look forward (editing mid-sentence)
+      if (sentenceEnd === -1) {
+        for (let i = posInBlock; i < blockText.length; i++) {
+          if (SENTENCE_END_PUNCTUATION.includes(blockText[i])) {
+            sentenceEnd = i + 1
+            break
+          }
+        }
+      }
+      // No sentence boundary found at all → use block end
+      if (sentenceEnd === -1) sentenceEnd = blockText.length
+
+      // 2. Find the start of this sentence (look for previous sentence boundary)
+      let sentenceStart = 0
+      for (let i = sentenceEnd - 2; i >= 0; i--) {
+        if (SENTENCE_END_PUNCTUATION.includes(blockText[i])) {
+          sentenceStart = i + 1
+          // Skip whitespace after the previous sentence's punctuation
+          while (sentenceStart < sentenceEnd && /\s/.test(blockText[sentenceStart])) {
+            sentenceStart++
+          }
+          break
+        }
+      }
+
+      const text = blockText.slice(sentenceStart, sentenceEnd)
+      if (text.trim().length < 3) return null
+
+      return { text, from: blockStart + sentenceStart, to: blockStart + sentenceEnd }
+    }
+
+    /**
+     * Check if a sentence is complete (ends with punctuation).
+     */
+    function isSentenceComplete(text: string): boolean {
+      const trimmed = text.trimEnd()
+      return SENTENCE_END_PUNCTUATION.some(p => trimmed.endsWith(p))
+    }
+
+    async function checkGrammar(sentenceText: string, sentenceFrom: number, fullText: string) {
+      if (!opts.autocorrect) return
+
+      if (grammarAbort) grammarAbort.abort()
+      grammarAbort = new AbortController()
+
+      try {
+        // Ensure text ends with punctuation (API requirement)
+        const text = isSentenceComplete(sentenceText) ? sentenceText : sentenceText + "\n"
+
+        const data = await typewisePost(
+          opts.apiBaseUrl,
+          "/grammar_correction/whole_text_grammar_correction",
+          { text, languages: opts.languages, full_text: fullText },
+          opts.apiToken || undefined
+        )
+        if (grammarAbort.signal.aborted || !data || tiptapEditor.isDestroyed) return
+
+        const view = tiptapEditor.view
+        const matches = data.matches || []
+        if (matches.length === 0) return
+
+        for (const match of matches) {
+          const startIndex: number = match.startIndex ?? match.offset ?? 0
+          const charsToReplace: number = match.charsToReplace ?? match.length ?? 0
+          const suggestions = match.suggestions || match.replacements?.map((r: any) => ({
+            correction: r.value,
+            score: 1,
+          })) || []
+
+          if (charsToReplace === 0 || suggestions.length === 0) continue
+
+          const wordFrom = sentenceFrom + startIndex
+          const wordTo = wordFrom + charsToReplace
+          if (wordFrom < 0 || wordTo > view.state.doc.content.size) continue
+
+          const originalWord = view.state.doc.textBetween(wordFrom, wordTo, "")
+          if (isInDictionary(originalWord)) continue
+
+          const correctionType: "auto" | "manual" = match.correctionType === "auto" || match.underline_choice === "auto"
+            ? "auto" : "manual"
+
+          // Check if there's already a correction overlapping this range
+          const ps = typewisePluginKey.getState(view.state)
+          const hasOverlap = ps?.corrections.some(c =>
+            (c.from < wordTo && c.to > wordFrom)
+          )
+          if (hasOverlap) continue
+
+          if (correctionType === "auto" && suggestions[0]?.correction) {
+            const replacementWord = suggestions[0].correction
+            if (replacementWord === originalWord) continue
+
+            const correction: CorrectionEntry = {
+              id: nextCorrectionId(),
+              from: wordFrom,
+              to: wordFrom + replacementWord.length,
+              type: "auto",
+              originalValue: originalWord,
+              currentValue: replacementWord,
+              suggestions,
+            }
+
+            const { tr } = view.state
+            tr.insertText(replacementWord, wordFrom, wordTo)
+            tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
+            view.dispatch(tr)
+          } else if (correctionType === "manual") {
+            const correction: CorrectionEntry = {
+              id: nextCorrectionId(),
+              from: wordFrom,
+              to: wordTo,
+              type: "manual",
+              originalValue: originalWord,
+              currentValue: originalWord,
+              suggestions,
+            }
+            view.dispatch(
+              view.state.tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
+            )
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError" || grammarAbort?.signal.aborted) return
+        console.warn("[Typewise] grammar correction error:", err)
+      }
+    }
+
+    /**
+     * Schedule grammar correction with a debounce.
+     * Called when a sentence end is detected or when editing within a complete sentence.
+     */
+    function scheduleGrammarCheck(view: EditorView) {
+      if (grammarTimer) clearTimeout(grammarTimer)
+      grammarTimer = setTimeout(() => {
+        const { $from } = view.state.selection
+        const pos = $from.pos
+        const sentence = getSentenceAtPos(view.state, pos)
+        if (!sentence) return
+
+        // Get full text up to and including the sentence (context for the API)
+        const blockStart = $from.start()
+        const fullText = view.state.doc.textBetween(0, sentence.to, "\n")
+        checkGrammar(sentence.text, sentence.from, fullText)
+      }, 800) // Small delay to avoid firing while still typing
+    }
+
     // ── API: sentence completion ──────────────────────────────────────
 
     async function fetchPrediction(text: string, cursorPos: number, requestId: number) {
@@ -302,6 +513,10 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
         // Verify cursor hasn't moved since the request was made
         const currentPos = tiptapEditor.view.state.selection.$from.pos
         if (currentPos !== cursorPos) return
+
+        // Don't overwrite an existing prediction (it may have advanced via overlap)
+        const currentPluginState = typewisePluginKey.getState(tiptapEditor.view.state)
+        if (currentPluginState?.prediction) return
 
         const pred = data.predictions?.[0]
         if (!pred?.text) return
@@ -396,6 +611,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             activeCorrection: null,
             prediction: null,
             decorations: DecorationSet.empty,
+            predictionSpacePos: -1,
           }
         },
 
@@ -413,6 +629,12 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
           let activeCorrection = prev.activeCorrection
           let prediction = prev.prediction
+          let predictionSpacePos = prev.predictionSpacePos
+
+          // Map prediction space position through doc changes
+          if (tr.docChanged && predictionSpacePos >= 0) {
+            predictionSpacePos = tr.mapping.map(predictionSpacePos)
+          }
 
           // ── Handle meta actions ──
           if (meta) {
@@ -441,6 +663,13 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
                 break
               case "clear-prediction":
                 prediction = null
+                // Track the position of the auto-inserted space after prediction
+                if (typeof meta.predictionSpacePos === "number") {
+                  predictionSpacePos = meta.predictionSpacePos
+                }
+                break
+              case "clear-prediction-space":
+                predictionSpacePos = -1
                 break
               case "dismiss":
                 activeCorrection = null
@@ -512,7 +741,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
           const decorations = buildDecorations(newState.doc, corrections, prediction)
 
-          return { corrections, activeCorrection, prediction, decorations }
+          return { corrections, activeCorrection, prediction, decorations, predictionSpacePos }
         },
       },
 
@@ -521,8 +750,12 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           return this.getState(state)?.decorations ?? DecorationSet.empty
         },
 
-        // Detect clicks on correction underlines
+        // Detect clicks on correction underlines (single-click only)
         handleClick(view, pos, event) {
+          // Only intercept single clicks — let double/triple clicks perform native
+          // word/line selection even on underlined words
+          if (event.detail !== 1) return false
+
           const target = event.target as HTMLElement
           const corrId =
             target?.getAttribute("data-tw-correction-id") ||
@@ -580,8 +813,41 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           },
         },
 
-        // Trigger corrections on word boundaries
+        // Trigger corrections on word boundaries + grammar on sentence end
         handleTextInput(view, from, _to, text) {
+          // Smart space: if we just inserted a trailing space after a prediction
+          // and the user types punctuation, reattach it to the previous word.
+          // "example |" + "." → "example. |"
+          const ps = typewisePluginKey.getState(view.state)
+          const spacePos = ps?.predictionSpacePos ?? -1
+
+          if (spacePos >= 0 && /^[.,;:!?)\]}>]$/.test(text)) {
+            // Verify the space is still at the expected position
+            if (spacePos < view.state.doc.content.size) {
+              const charAtSpace = view.state.doc.textBetween(spacePos, spacePos + 1, "")
+              if (charAtSpace === " ") {
+                const { tr } = view.state
+                // Replace space with punctuation + space
+                tr.insertText(text + " ", spacePos, spacePos + 1)
+                // Clear the prediction space tracker
+                tr.setMeta(typewisePluginKey, { type: "clear-prediction-space" })
+                view.dispatch(tr)
+                // Still trigger grammar check if sentence-ending punctuation
+                if (SENTENCE_END_PUNCTUATION.includes(text)) {
+                  scheduleGrammarCheck(view)
+                }
+                return true
+              }
+            }
+          }
+
+          // Any other non-punctuation input clears the prediction space tracker
+          if (spacePos >= 0 && !/^[.,;:!?)\]}>]$/.test(text)) {
+            view.dispatch(
+              view.state.tr.setMeta(typewisePluginKey, { type: "clear-prediction-space" })
+            )
+          }
+
           const isWordBoundary = /[\s.,;:!?\-)\]}>]/.test(text)
 
           if (isWordBoundary && opts.autocorrect) {
@@ -595,6 +861,16 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             }
           }
 
+          // Trigger grammar check when sentence-ending punctuation is typed,
+          // OR when a space is typed right after sentence-ending punctuation
+          const isSentenceEnd = SENTENCE_END_PUNCTUATION.includes(text) ||
+            (text === " " && from > 0 && SENTENCE_END_PUNCTUATION.includes(
+              view.state.doc.textBetween(from - 1, from, ""))) ||
+            (text === "\n")
+          if (isSentenceEnd) {
+            scheduleGrammarCheck(view)
+          }
+
           return false
         },
       },
@@ -602,16 +878,34 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       view() {
         return {
           update(view, prevState) {
-            if (!prevState.doc.eq(view.state.doc) && opts.predictions) {
-              const ps = typewisePluginKey.getState(view.state)
-              // Only schedule a new fetch if there's no active prediction
-              if (!ps?.prediction) {
-                schedulePrediction(view)
+            if (!prevState.doc.eq(view.state.doc)) {
+              if (opts.predictions) {
+                const ps = typewisePluginKey.getState(view.state)
+                // Only schedule a new fetch if there's no active prediction
+                if (!ps?.prediction) {
+                  schedulePrediction(view)
+                }
+              }
+
+              // Grammar check: when editing inside an existing complete sentence
+              if (opts.autocorrect) {
+                const { $from } = view.state.selection
+                const pos = $from.pos
+                const sentence = getSentenceAtPos(view.state, pos)
+                if (sentence) {
+                  // Check if text AFTER the cursor contains sentence-ending punctuation
+                  // (i.e. we're editing inside an already-complete sentence)
+                  const textAfterCursor = sentence.text.slice(pos - sentence.from)
+                  if (SENTENCE_END_PUNCTUATION.some(p => textAfterCursor.includes(p))) {
+                    scheduleGrammarCheck(view)
+                  }
+                }
               }
             }
           },
           destroy() {
             if (predictionTimer) clearTimeout(predictionTimer)
+            if (grammarTimer) clearTimeout(grammarTimer)
             clearCachedGhostElement()
           },
         }

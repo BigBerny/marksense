@@ -517,8 +517,6 @@ export const DragContextMenu: React.FC<DragContextMenuProps> = ({
 
                 <CoreActionGroup />
 
-                <AIActionGroup />
-
                 <DeleteActionGroup />
               </ComboboxList>
             </MenuContent>
