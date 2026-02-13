@@ -24,6 +24,9 @@
           },
           {
             "filenamePattern": "*.markdown"
+          },
+          {
+            "filenamePattern": "*.mdx"
           }
         ],
         "priority": "option"

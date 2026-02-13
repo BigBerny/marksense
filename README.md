@@ -2,7 +2,7 @@
 
 A Cursor / VS Code extension that lets you view and edit Markdown files in a rich, Notion-like editor powered by [Tiptap](https://tiptap.dev).
 
-## Features
+## Featuresdsfsdfsdfdsdfdsfdsfds
 
 - **Notion-like editing** -- full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
 - **Markdown round-trip** -- opens `.md` files, edits in rich text, saves back as clean Markdown via `@tiptap/markdown`
@@ -40,8 +40,6 @@ Or configure them in VS Code settings:
 - `markdownTiptap.aiToken`
 
 Get credentials at [https://cloud.tiptap.dev](https://cloud.tiptap.dev).
-
-### 3. Build
 
 ```bash
 npm run build

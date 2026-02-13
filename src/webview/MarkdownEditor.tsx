@@ -90,6 +90,16 @@ import { DiffProvider, useDiff } from "./DiffContext"
 import { DiffHighlight, diffHighlightKey } from "./extensions/DiffHighlightExtension"
 import "./components/DiffView.scss"
 
+// --- Frontmatter & MDX ---
+import {
+  parseFrontmatter,
+  serializeFrontmatter,
+  wrapJsxComponents,
+  unwrapJsxComponents,
+  type FrontmatterEntry,
+} from "./frontmatterUtils"
+import { FrontmatterPanel } from "./components/FrontmatterPanel"
+
 /**
  * Content area that renders the editor with all menus and toolbars.
  * Expects to be inside an EditorContext.Provider.
@@ -151,9 +161,26 @@ function MarkdownEditorInner() {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
   const { isDiffMode, headContent, setHeadContent } = useDiff()
+
+  // --- Parse the initial file content into frontmatter + body (once) ---
+  const [initialParsed] = useState(() => {
+    const raw = window.__INITIAL_CONTENT__ || ""
+    const parsed = parseFrontmatter(raw)
+    return {
+      ...parsed,
+      processedBody: wrapJsxComponents(parsed.body),
+    }
+  })
+
   const [currentMarkdown, setCurrentMarkdown] = useState(
     window.__INITIAL_CONTENT__ || ""
   )
+  const [frontmatter, setFrontmatter] = useState<FrontmatterEntry[] | null>(
+    initialParsed.frontmatter
+  )
+  // Ref so the editor onUpdate callback always has the latest frontmatter
+  const frontmatterRef = useRef(initialParsed.frontmatter)
+
   const [rawMode, setRawMode] = useState(false)
   const [rawContent, setRawContent] = useState("")
   const rawContentOriginal = useRef("")
@@ -259,8 +286,8 @@ function MarkdownEditorInner() {
         predictions: true,
       }),
     ],
-    // --- Initial content from the markdown file ---
-    content: window.__INITIAL_CONTENT__ || "",
+    // --- Initial content: body only (frontmatter is handled separately) ---
+    content: initialParsed.processedBody,
     // @ts-ignore — contentType available via @tiptap/markdown
     contentType: "markdown",
     // --- Sync edits back to VS Code ---
@@ -271,8 +298,11 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = ed.getMarkdown()
-        setCurrentMarkdown(md)
-        vscode.postMessage({ type: "edit", content: md })
+        // Restore JSX blocks and prepend frontmatter before syncing
+        const restoredBody = unwrapJsxComponents(md)
+        const full = serializeFrontmatter(frontmatterRef.current, restoredBody)
+        setCurrentMarkdown(full)
+        vscode.postMessage({ type: "edit", content: full })
       }, 150)
     },
   })
@@ -354,6 +384,12 @@ function MarkdownEditorInner() {
     (event: MessageEvent) => {
       const message = event.data
       if (message.type === "update" && editor && !editor.isDestroyed) {
+        // Re-parse frontmatter from the incoming full-file content
+        const parsed = parseFrontmatter(message.content)
+        const processedBody = wrapJsxComponents(parsed.body)
+        setFrontmatter(parsed.frontmatter)
+        frontmatterRef.current = parsed.frontmatter
+
         isExternalUpdate.current = true
         // Temporarily wrap dispatch so the setContent transaction is
         // marked as non-undoable (external syncs shouldn't pollute undo stack)
@@ -363,7 +399,7 @@ function MarkdownEditorInner() {
           origDispatch(tr)
         }
         // @ts-ignore — contentType option provided by @tiptap/markdown
-        editor.commands.setContent(message.content, {
+        editor.commands.setContent(processedBody, {
           contentType: "markdown",
           emitUpdate: false,
         })
@@ -426,17 +462,24 @@ function MarkdownEditorInner() {
     if (!editor || editor.isDestroyed) return
 
     if (!rawMode) {
-      // Entering raw mode: capture current markdown
+      // Entering raw mode: show the full file content (frontmatter + body)
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
-      setRawContent(md)
-      rawContentOriginal.current = md
+      const restoredBody = unwrapJsxComponents(md)
+      const full = serializeFrontmatter(frontmatterRef.current, restoredBody)
+      setRawContent(full)
+      rawContentOriginal.current = full
     } else {
-      // Leaving raw mode: only re-parse if the user actually edited the markdown
+      // Leaving raw mode: re-parse frontmatter + JSX and update editor
       if (rawContent !== rawContentOriginal.current) {
+        const parsed = parseFrontmatter(rawContent)
+        const processedBody = wrapJsxComponents(parsed.body)
+        setFrontmatter(parsed.frontmatter)
+        frontmatterRef.current = parsed.frontmatter
+
         isExternalUpdate.current = true
         // @ts-ignore — contentType option provided by @tiptap/markdown
-        editor.commands.setContent(rawContent, {
+        editor.commands.setContent(processedBody, {
           contentType: "markdown",
           emitUpdate: false,
         })
@@ -447,6 +490,26 @@ function MarkdownEditorInner() {
     }
     setRawMode((prev) => !prev)
   }, [editor, rawMode, rawContent])
+
+  // ── Frontmatter change handler ─────────────────────────────────────
+  const handleFrontmatterChange = useCallback(
+    (entries: FrontmatterEntry[]) => {
+      setFrontmatter(entries)
+      frontmatterRef.current = entries
+
+      // Sync the full file content to VS Code (frontmatter + body)
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      debounceTimer.current = setTimeout(() => {
+        // @ts-ignore — getMarkdown available via @tiptap/markdown
+        const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const restoredBody = unwrapJsxComponents(md)
+        const full = serializeFrontmatter(entries, restoredBody)
+        setCurrentMarkdown(full)
+        vscode.postMessage({ type: "edit", content: full })
+      }, 150)
+    },
+    [editor]
+  )
 
   if (!editor) {
     return <LoadingSpinner />
@@ -481,6 +544,14 @@ function MarkdownEditorInner() {
           </div>
         ) : (
           <>
+            {/* Frontmatter key-value panel (only if file has frontmatter) */}
+            {frontmatter && frontmatter.length > 0 && (
+              <FrontmatterPanel
+                entries={frontmatter}
+                onChange={handleFrontmatterChange}
+              />
+            )}
+
             <div className="notion-like-editor-layout">
               <MarkdownEditorContent editor={editor} />
               <TocSidebar topOffset={48} />
