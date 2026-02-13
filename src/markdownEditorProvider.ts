@@ -68,8 +68,75 @@ function getGitHeadContent(filePath: string): string | null {
   }
 }
 
-export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
+// ─── Custom document ─────────────────────────────────────────────────
+
+/**
+ * Minimal document model.  We read the file ourselves (instead of relying
+ * on VS Code's TextDocument model) which avoids a race condition where
+ * VS Code's internal `$resolveCustomEditor` calls `getDocument(uri)`
+ * before the text-document model has been synced during editor restoration.
+ */
+class MarkdownDocument implements vscode.CustomDocument {
+  readonly uri: vscode.Uri;
+
+  private _content: string;
+  private _savedContent: string;
+
+  constructor(uri: vscode.Uri, content: string) {
+    this.uri = uri;
+    this._content = content;
+    this._savedContent = content;
+  }
+
+  /** Current (possibly unsaved) content. */
+  get content(): string {
+    return this._content;
+  }
+
+  /** Update in-memory content (does NOT write to disk). */
+  set content(value: string) {
+    this._content = value;
+  }
+
+  /** Whether there are unsaved changes. */
+  get isDirty(): boolean {
+    return this._content !== this._savedContent;
+  }
+
+  /** Mark current content as persisted. */
+  markSaved(): void {
+    this._savedContent = this._content;
+  }
+
+  /** Replace content with freshly-read file data (revert). */
+  revert(diskContent: string): void {
+    this._content = diskContent;
+    this._savedContent = diskContent;
+  }
+
+  dispose(): void {
+    // Nothing to clean up
+  }
+}
+
+// ─── Editor provider ─────────────────────────────────────────────────
+
+export class MarkdownEditorProvider
+  implements vscode.CustomEditorProvider<MarkdownDocument>
+{
   private static readonly viewType = "markdownTiptap.editor";
+
+  /**
+   * Fires when document content changes (marks it dirty in VS Code).
+   * We use `CustomDocumentContentChangeEvent` (no VS Code undo/redo
+   * integration) because Tiptap has its own undo/redo stack.
+   */
+  private readonly _onDidChangeCustomDocument =
+    new vscode.EventEmitter<vscode.CustomDocumentContentChangeEvent<MarkdownDocument>>();
+  readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
+
+  /** Active webview panels keyed by document URI string. */
+  private readonly webviewPanels = new Map<string, vscode.WebviewPanel>();
 
   public static register(
     context: vscode.ExtensionContext
@@ -87,11 +154,25 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  public async resolveCustomTextEditor(
-    document: vscode.TextDocument,
+  // ── CustomEditorProvider lifecycle ────────────────────────────────
+
+  async openCustomDocument(
+    uri: vscode.Uri,
+    _openContext: vscode.CustomDocumentOpenContext,
+    _token: vscode.CancellationToken
+  ): Promise<MarkdownDocument> {
+    const content = await fs.promises.readFile(uri.fsPath, "utf-8");
+    return new MarkdownDocument(uri, content);
+  }
+
+  async resolveCustomEditor(
+    document: MarkdownDocument,
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
+    const uriKey = document.uri.toString();
+    this.webviewPanels.set(uriKey, webviewPanel);
+
     webviewPanel.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -112,88 +193,141 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     // Generate the webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
-      document.getText(),
+      document.content,
       { aiAppId, aiToken, typewiseToken, autoSaveDelay }
     );
 
-    // --- Bidirectional sync ---
+    // --- Sync: webview → document model ---
 
-    // Flag to track self-initiated edits (prevents update loops)
-    let isSelfEdit = false;
-    // Debounce timer for webview -> document sync
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-    // Listen for messages from the webview
     const messageSubscription = webviewPanel.webview.onDidReceiveMessage(
-      async (message: { type: string; content?: string }) => {
+      (message: { type: string; content?: string }) => {
         if (message.type === "edit" && message.content !== undefined) {
-          // Debounce the document update
-          if (debounceTimer) {
-            clearTimeout(debounceTimer);
-          }
-          debounceTimer = setTimeout(async () => {
-            const currentText = document.getText();
-            if (message.content === currentText) {
-              return; // No change needed
-            }
+          if (debounceTimer) clearTimeout(debounceTimer);
 
-            isSelfEdit = true;
-            const edit = new vscode.WorkspaceEdit();
-            const fullRange = new vscode.Range(
-              document.positionAt(0),
-              document.positionAt(currentText.length)
-            );
-            edit.replace(document.uri, fullRange, message.content!);
-            await vscode.workspace.applyEdit(edit);
-            isSelfEdit = false;
+          debounceTimer = setTimeout(() => {
+            if (message.content === document.content) return;
+            document.content = message.content!;
+            // Tell VS Code the document is dirty
+            this._onDidChangeCustomDocument.fire({ document });
           }, autoSaveDelay);
         }
 
         // --- Diff support: return the HEAD version of the file ---
         if (message.type === "requestDiff") {
-          const filePath = document.uri.fsPath;
-          const headContent = getGitHeadContent(filePath);
-          webviewPanel.webview.postMessage({
-            type: "diffContent",
-            content: headContent,
-          });
+          try {
+            const headContent = getGitHeadContent(document.uri.fsPath);
+            webviewPanel.webview.postMessage({
+              type: "diffContent",
+              content: headContent,
+            });
+          } catch (err) {
+            console.error("[MarkdownTiptap] Error fetching diff:", err);
+          }
         }
       }
     );
 
-    // Listen for external document changes (undo, redo, external edits)
-    const documentChangeSubscription =
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (
-          e.document.uri.toString() === document.uri.toString() &&
-          !isSelfEdit &&
-          e.contentChanges.length > 0
-        ) {
+    // --- Watch for external file changes (e.g. git checkout) ---
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(document.uri, "*")
+    );
+    const onExternalChange = async () => {
+      try {
+        const diskContent = await fs.promises.readFile(
+          document.uri.fsPath,
+          "utf-8"
+        );
+        if (diskContent !== document.content) {
+          document.revert(diskContent);
           webviewPanel.webview.postMessage({
             type: "update",
-            content: document.getText(),
+            content: diskContent,
           });
         }
-      });
+      } catch {
+        // File may have been deleted
+      }
+    };
+    watcher.onDidChange(onExternalChange);
 
     // Clean up on dispose
     webviewPanel.onDidDispose(() => {
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
+      if (debounceTimer) clearTimeout(debounceTimer);
       messageSubscription.dispose();
-      documentChangeSubscription.dispose();
+      watcher.dispose();
+      this.webviewPanels.delete(uriKey);
     });
   }
+
+  // ── Save / Revert / Backup ───────────────────────────────────────
+
+  async saveCustomDocument(
+    document: MarkdownDocument,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    await fs.promises.writeFile(document.uri.fsPath, document.content, "utf-8");
+    document.markSaved();
+  }
+
+  async saveCustomDocumentAs(
+    document: MarkdownDocument,
+    destination: vscode.Uri,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    await fs.promises.writeFile(
+      destination.fsPath,
+      document.content,
+      "utf-8"
+    );
+  }
+
+  async revertCustomDocument(
+    document: MarkdownDocument,
+    _cancellation: vscode.CancellationToken
+  ): Promise<void> {
+    const diskContent = await fs.promises.readFile(
+      document.uri.fsPath,
+      "utf-8"
+    );
+    document.revert(diskContent);
+
+    // Push reverted content to the webview
+    const panel = this.webviewPanels.get(document.uri.toString());
+    if (panel) {
+      panel.webview.postMessage({ type: "update", content: diskContent });
+    }
+  }
+
+  async backupCustomDocument(
+    document: MarkdownDocument,
+    context: vscode.CustomDocumentBackupContext,
+    _cancellation: vscode.CancellationToken
+  ): Promise<vscode.CustomDocumentBackup> {
+    await fs.promises.writeFile(
+      context.destination.fsPath,
+      document.content,
+      "utf-8"
+    );
+    return {
+      id: context.destination.toString(),
+      delete: () => {
+        fs.promises.unlink(context.destination.fsPath).catch(() => {});
+      },
+    };
+  }
+
+  // ── HTML generation ──────────────────────────────────────────────
 
   private getHtmlForWebview(
     webview: vscode.Webview,
     initialContent: string,
     settings: {
-      aiAppId: string
-      aiToken: string
-      typewiseToken: string
-      autoSaveDelay: number
+      aiAppId: string;
+      aiToken: string;
+      typewiseToken: string;
+      autoSaveDelay: number;
     }
   ): string {
     const scriptUri = webview.asWebviewUri(
@@ -221,10 +355,33 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     script-src 'nonce-${nonce}';
     connect-src https://api.tiptap.dev https://*.tiptap.dev https://api.typewise.ai;
   ">
+  <style>
+    /* Match VS Code theme instantly so there is no white flash. */
+    html, body {
+      background-color: var(--vscode-editor-background, #1e1e1e);
+      color: var(--vscode-editor-foreground, #cccccc);
+      margin: 0;
+      padding: 0;
+    }
+  </style>
   <link href="${styleUri}" rel="stylesheet">
   <title>Tiptap Markdown Editor</title>
 </head>
 <body>
+  <script nonce="${nonce}">
+    // Apply the "dark" class synchronously before any painting occurs.
+    // The Tiptap template uses .dark on <html> for dark-mode colors, but
+    // it's normally set by a React useEffect which runs too late.
+    // VS Code webviews add "vscode-dark" to <body> and set the
+    // color-scheme meta tag before our scripts run.
+    (function() {
+      var isDark =
+        document.body.classList.contains('vscode-dark') ||
+        !!document.querySelector('meta[name="color-scheme"][content="dark"]') ||
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (isDark) document.documentElement.classList.add('dark');
+    })();
+  </script>
   <div id="root"></div>
   <script nonce="${nonce}">
     window.__INITIAL_CONTENT__ = ${escapedContent};

@@ -126,7 +126,7 @@ export function TocSidebar({
 
     const target = headingList.find((h) => h.id === hash)
     if (target?.dom) {
-      navigateToHeading(target, { topOffset, behavior: "auto" })
+      navigateToHeading(target, { topOffset })
       hasRestoredHashRef.current = true
     }
   }, [headingList, navigateToHeading, topOffset])

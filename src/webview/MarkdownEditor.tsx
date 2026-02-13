@@ -87,7 +87,8 @@ import { vscode } from "./vscodeApi"
 
 // --- Diff ---
 import { DiffProvider, useDiff } from "./DiffContext"
-import { DiffView } from "./components/DiffView"
+import { DiffHighlight, diffHighlightKey } from "./extensions/DiffHighlightExtension"
+import "./components/DiffView.scss"
 
 /**
  * Content area that renders the editor with all menus and toolbars.
@@ -248,6 +249,8 @@ function MarkdownEditorInner() {
       Typography,
       UiState,
       TocNode.configure({ topOffset: 48 }),
+      // --- Diff highlight (inline decorations) ---
+      DiffHighlight,
       // --- Typewise: autocorrection + inline predictions ---
       TypewiseIntegration.configure({
         apiToken: typewiseToken,
@@ -383,8 +386,28 @@ function MarkdownEditorInner() {
   useEffect(() => {
     if (isDiffMode) {
       vscode.postMessage({ type: "requestDiff" })
+    } else if (editor && !editor.isDestroyed) {
+      // Deactivate diff decorations
+      editor.view.dispatch(
+        editor.state.tr.setMeta(diffHighlightKey, { type: "deactivate" })
+      )
     }
-  }, [isDiffMode])
+  }, [isDiffMode, editor])
+
+  // --- Activate diff decorations when HEAD content arrives ---
+  useEffect(() => {
+    if (isDiffMode && headContent !== null && editor && !editor.isDestroyed) {
+      // @ts-ignore — getMarkdown available via @tiptap/markdown
+      const md = editor.getMarkdown()
+      editor.view.dispatch(
+        editor.state.tr.setMeta(diffHighlightKey, {
+          type: "activate",
+          headContent,
+          currentMarkdown: md,
+        })
+      )
+    }
+  }, [isDiffMode, headContent, editor])
 
   useEffect(() => {
     window.addEventListener("message", handleMessage)
@@ -429,30 +452,14 @@ function MarkdownEditorInner() {
     return <LoadingSpinner />
   }
 
-  // Determine which special mode is active (diff takes precedence)
-  const showDiff = isDiffMode && headContent !== null
-  const showRaw = rawMode && !showDiff
-  const showEditor = !showDiff && !showRaw
+  const showRaw = rawMode
 
   return (
     <div className="notion-like-editor-wrapper">
       <EditorContext.Provider value={{ editor }}>
         <NotionEditorHeader rawMode={rawMode} onToggleRawMode={handleToggleRawMode} />
 
-        {showDiff && (
-          <div className="notion-like-editor-layout">
-            <div className="notion-like-editor-content">
-              <div className="tiptap ProseMirror notion-like-editor" style={{ flex: 1, padding: "3rem 3rem 30vh" }}>
-                <DiffView
-                  currentContent={currentMarkdown}
-                  headContent={headContent}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showRaw && (
+        {showRaw ? (
           <div className="raw-markdown-container">
             <textarea
               className="raw-markdown-editor"
@@ -472,9 +479,7 @@ function MarkdownEditorInner() {
               autoCorrect="off"
             />
           </div>
-        )}
-
-        {showEditor && (
+        ) : (
           <>
             <div className="notion-like-editor-layout">
               <MarkdownEditorContent editor={editor} />
@@ -495,7 +500,7 @@ function MarkdownEditorInner() {
           </>
         )}
       </EditorContext.Provider>
-      {!isDiffMode && !rawMode && <CorrectionPopup editor={editor} />}
+      {!rawMode && <CorrectionPopup editor={editor} />}
     </div>
   )
 }

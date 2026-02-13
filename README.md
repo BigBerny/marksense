@@ -35,10 +35,11 @@ TIPTAP_AI_TOKEN=your-jwt-token
 ```
 
 Or configure them in VS Code settings:
+
 - `markdownTiptap.aiAppId`
 - `markdownTiptap.aiToken`
 
-Get credentials at <https://cloud.tiptap.dev>.
+Get credentials at [https://cloud.tiptap.dev](https://cloud.tiptap.dev).
 
 ### 3. Build
 
@@ -90,11 +91,13 @@ src/
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `markdownTiptap.aiAppId` | `""` | Tiptap Cloud AI App ID |
-| `markdownTiptap.aiToken` | `""` | Tiptap Cloud AI JWT Token |
-| `markdownTiptap.autoSaveDelay` | `300` | Debounce delay (ms) before syncing edits |
+
+| Setting                        | Default | Description                              |
+| ------------------------------ | ------- | ---------------------------------------- |
+| `markdownTiptap.aiAppId`       | `""`    | Tiptap Cloud AI App ID                   |
+| `markdownTiptap.aiToken`       | `""`    | Tiptap Cloud AI JWT Token                |
+| `markdownTiptap.autoSaveDelay` | `300`   | Debounce delay (ms) before syncing edits |
+
 
 ## License
 

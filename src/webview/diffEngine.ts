@@ -151,3 +151,52 @@ export function diffMarkdown(oldMarkdown: string, newMarkdown: string): DiffResu
   const newBlocks = parseBlocks(newMarkdown)
   return diffBlocks(oldBlocks, newBlocks)
 }
+
+// ─── Character-level diff ──────────────────────────────────────────────────
+
+export interface CharDiffRange {
+  from: number
+  to: number
+}
+
+/**
+ * Find the character ranges that differ between two strings.
+ * Uses prefix/suffix matching: everything between the common prefix and
+ * common suffix is marked as changed. Works well for typical single-edit diffs.
+ */
+export function diffChars(
+  oldText: string,
+  newText: string
+): { oldRanges: CharDiffRange[]; newRanges: CharDiffRange[] } {
+  if (oldText === newText) {
+    return { oldRanges: [], newRanges: [] }
+  }
+
+  // Common prefix
+  let prefixLen = 0
+  const minLen = Math.min(oldText.length, newText.length)
+  while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) {
+    prefixLen++
+  }
+
+  // Common suffix (after prefix)
+  let suffixLen = 0
+  while (
+    suffixLen < oldText.length - prefixLen &&
+    suffixLen < newText.length - prefixLen &&
+    oldText[oldText.length - 1 - suffixLen] ===
+      newText[newText.length - 1 - suffixLen]
+  ) {
+    suffixLen++
+  }
+
+  const oldStart = prefixLen
+  const oldEnd = oldText.length - suffixLen
+  const newStart = prefixLen
+  const newEnd = newText.length - suffixLen
+
+  return {
+    oldRanges: oldStart < oldEnd ? [{ from: oldStart, to: oldEnd }] : [],
+    newRanges: newStart < newEnd ? [{ from: newStart, to: newEnd }] : [],
+  }
+}

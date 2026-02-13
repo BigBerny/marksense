@@ -1,161 +1,123 @@
 /* =====================
-     DIFF VIEW
+     DIFF INLINE DECORATIONS
      ===================== */
 
 /* --- Diff color variables --- */
 :root {
-  --diff-added-bg: rgba(35, 134, 54, 0.07);
-  --diff-added-border: rgba(35, 134, 54, 0.35);
-  --diff-added-indicator: rgba(35, 134, 54, 0.6);
+  --diff-added-bg: rgba(35, 134, 54, 0.08);
+  --diff-added-border: rgba(35, 134, 54, 0.3);
 
-  --diff-removed-bg: rgba(208, 44, 55, 0.06);
-  --diff-removed-border: rgba(208, 44, 55, 0.3);
-  --diff-removed-indicator: rgba(208, 44, 55, 0.55);
-
-  --diff-unchanged-text: var(--tt-gray-light-a-600);
+  --diff-removed-bg: rgba(208, 44, 55, 0.07);
+  --diff-removed-border: rgba(208, 44, 55, 0.28);
+  --diff-removed-text: var(--tt-gray-light-a-500);
 }
 
 .dark {
-  --diff-added-bg: rgba(46, 160, 67, 0.1);
-  --diff-added-border: rgba(46, 160, 67, 0.35);
-  --diff-added-indicator: rgba(46, 160, 67, 0.7);
+  --diff-added-bg: rgba(46, 160, 67, 0.12);
+  --diff-added-border: rgba(46, 160, 67, 0.3);
 
   --diff-removed-bg: rgba(248, 81, 73, 0.1);
-  --diff-removed-border: rgba(248, 81, 73, 0.3);
-  --diff-removed-indicator: rgba(248, 81, 73, 0.65);
-
-  --diff-unchanged-text: var(--tt-gray-dark-a-600);
+  --diff-removed-border: rgba(248, 81, 73, 0.28);
+  --diff-removed-text: var(--tt-gray-dark-a-500);
 }
 
-/* --- Diff view container --- */
-.diff-view {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* ── Node decorations: green background for added / modified blocks ── */
+/* Only horizontal expansion — NO vertical padding so text doesn't shift */
+
+.tiptap.ProseMirror {
+  .diff-node-added,
+  .diff-node-modified {
+    background-color: var(--diff-added-bg);
+    border-left: 3px solid var(--diff-added-border);
+    border-radius: var(--tt-radius-sm, 6px);
+    padding-left: 12px;
+    padding-right: 14px;
+    margin-left: -15px;
+    margin-right: -14px;
+    /* Minimal vertical padding with matching negative margin to keep position */
+    padding-top: 4px;
+    padding-bottom: 4px;
+    margin-top: -4px;
+    margin-bottom: -4px;
+    transition: background-color 0.15s ease;
+  }
 }
 
-/* --- Individual diff block --- */
-.diff-block {
+/* ── Widget decorations: old / removed blocks (red background) ── */
+/* Rich-rendered HTML from the editor's own markdown parser + schema */
+
+.diff-old-block {
   position: relative;
-  border-radius: var(--tt-radius-sm, 6px);
-  transition:
-    background-color var(--tt-transition-duration-default, 0.2s)
-      var(--tt-transition-easing-default),
-    border-color var(--tt-transition-duration-default, 0.2s)
-      var(--tt-transition-easing-default);
-}
-
-.diff-block-content {
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-family: "DM Sans", sans-serif;
-  font-size: 1rem;
-  line-height: 1.6;
-  font-weight: normal;
-}
-
-.diff-block-indicator {
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.75rem;
-  font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--tt-radius-xxs, 2px);
-  user-select: none;
-}
-
-/* --- Unchanged blocks --- */
-.diff-block--unchanged {
-  padding: 4px 16px;
-  color: var(--diff-unchanged-text);
-
-  .diff-block-content {
-    opacity: 0.65;
-  }
-}
-
-/* --- Added blocks --- */
-.diff-block--added {
-  background-color: var(--diff-added-bg);
-  border-left: 3px solid var(--diff-added-border);
-  padding: 10px 16px 10px 28px;
-
-  .diff-block-indicator {
-    color: var(--diff-added-indicator);
-  }
-}
-
-/* --- Removed blocks --- */
-.diff-block--removed {
   background-color: var(--diff-removed-bg);
   border-left: 3px solid var(--diff-removed-border);
-  padding: 10px 16px 10px 28px;
+  border-radius: var(--tt-radius-sm, 6px);
+  padding: 4px 14px 4px 12px;
+  margin-left: -15px;
+  margin-right: -14px;
+  margin-bottom: 6px;
+  user-select: none;
+  pointer-events: none;
+  transition: background-color 0.15s ease;
+}
 
-  .diff-block-content {
+/* The rich-rendered content inside the old block */
+.diff-old-block-content {
+  opacity: 0.75;
+
+  /* All text gets the removed styling */
+  &,
+  & * {
+    color: var(--diff-removed-text) !important;
     text-decoration: line-through;
     text-decoration-color: var(--diff-removed-border);
-    opacity: 0.75;
   }
 
-  .diff-block-indicator {
-    color: var(--diff-removed-indicator);
+  /* Reset margins on rendered child elements so they don't add extra space */
+  > p,
+  > h1,
+  > h2,
+  > h3,
+  > h4,
+  > h5,
+  > h6,
+  > ul,
+  > ol,
+  > blockquote,
+  > pre {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  /* Links shouldn't look clickable */
+  a {
+    pointer-events: none;
+    text-decoration: line-through !important;
+  }
+
+  /* Inline code in old blocks */
+  code {
+    background: transparent !important;
   }
 }
 
-/* --- Modified blocks (container for old+new) --- */
-.diff-block--modified {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0;
-  background: transparent;
+/* ── Character-level highlights within modified blocks ── */
 
-  > .diff-block--nested {
-    border-radius: var(--tt-radius-sm, 6px);
-  }
+/* Changed characters in the green (new) block */
+.diff-char-added {
+  background-color: rgba(35, 134, 54, 0.2);
+  border-radius: 2px;
 
-  > .diff-block--removed.diff-block--nested {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-  }
-
-  > .diff-block--added.diff-block--nested {
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
+  .dark & {
+    background-color: rgba(46, 160, 67, 0.25);
   }
 }
 
-/* --- Empty state --- */
-.diff-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 3rem 1rem;
-  gap: 0.75rem;
-  color: var(--diff-unchanged-text);
+/* Changed characters in the red (old) widget */
+.diff-char-removed {
+  background-color: rgba(208, 44, 55, 0.18);
+  border-radius: 2px;
 
-  .diff-empty-icon {
-    opacity: 0.5;
-
-    svg {
-      width: 2rem;
-      height: 2rem;
-    }
-  }
-
-  p {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 500;
+  .dark & {
+    background-color: rgba(248, 81, 73, 0.22);
   }
 }
