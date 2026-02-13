@@ -63,9 +63,18 @@
   }
 
   // Selected node styles
-  .ProseMirror-selectednode:not(img):not(pre):not(.react-renderer) {
+  .ProseMirror-selectednode:not(img):not(pre):not(.react-renderer):not(ol):not(ul) {
     border-radius: var(--tt-radius-md);
     background-color: var(--tt-selection-color);
+    outline: 8px solid var(--tt-selection-color);
+  }
+
+  // List selection: tighter outline to avoid visual padding shift
+  ol.ProseMirror-selectednode,
+  ul.ProseMirror-selectednode {
+    border-radius: var(--tt-radius-md);
+    background-color: var(--tt-selection-color);
+    outline: 4px solid var(--tt-selection-color);
   }
 
   .ProseMirror-hideselection {

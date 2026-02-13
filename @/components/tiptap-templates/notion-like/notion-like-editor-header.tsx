@@ -1,4 +1,4 @@
-import { ThemeToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-theme-toggle"
+import { WidthToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-width-toggle"
 
 // --- Tiptap UI ---
 import { UndoRedoButton } from "@/components/tiptap-ui/undo-redo-button"
@@ -53,53 +53,66 @@ function DiffToggleIcon() {
   )
 }
 
+export interface EditorActionsProps {
+  rawMode?: boolean
+  onToggleRawMode?: () => void
+}
+
+export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) {
+  const { isDiffMode, toggleDiffMode } = useDiff()
+
+  return (
+    <>
+      <ButtonGroup orientation="horizontal">
+        <UndoRedoButton action="undo" />
+        <UndoRedoButton action="redo" />
+      </ButtonGroup>
+
+      <Separator />
+
+      <Button
+        onClick={toggleDiffMode}
+        tooltip={rawMode ? "Show Changes (not available in raw mode)" : "Show Changes"}
+        data-style="ghost"
+        data-active-state={isDiffMode ? "on" : undefined}
+        aria-label="Toggle diff view"
+        disabled={rawMode}
+      >
+        <DiffToggleIcon />
+      </Button>
+
+      {onToggleRawMode && (
+        <Button
+          type="button"
+          data-style="ghost"
+          aria-label={rawMode ? "Switch to rich editor" : "View raw markdown"}
+          tooltip={rawMode ? "Switch to rich editor" : "View raw markdown"}
+          onClick={onToggleRawMode}
+          data-active={rawMode ? "" : undefined}
+          className={rawMode ? "raw-mode-active" : ""}
+        >
+          <SourceViewIcon className="tiptap-button-icon" />
+        </Button>
+      )}
+
+      <Separator />
+
+      <WidthToggle />
+    </>
+  )
+}
+
 interface NotionEditorHeaderProps {
   rawMode?: boolean
   onToggleRawMode?: () => void
 }
 
 export function NotionEditorHeader({ rawMode, onToggleRawMode }: NotionEditorHeaderProps) {
-  const { isDiffMode, toggleDiffMode } = useDiff()
-
   return (
-    <header className="notion-like-editor-header">
+    <header className="notion-like-editor-header" data-raw-mode={rawMode ? "true" : undefined}>
       <Spacer />
       <div className="notion-like-editor-header-actions">
-        <ButtonGroup orientation="horizontal">
-          <UndoRedoButton action="undo" />
-          <UndoRedoButton action="redo" />
-        </ButtonGroup>
-
-        <Separator />
-
-        <Button
-          onClick={toggleDiffMode}
-          tooltip={rawMode ? "Show Changes (not available in raw mode)" : "Show Changes"}
-          data-style="ghost"
-          data-active-state={isDiffMode ? "on" : undefined}
-          aria-label="Toggle diff view"
-          disabled={rawMode}
-        >
-          <DiffToggleIcon />
-        </Button>
-
-        {onToggleRawMode && (
-          <Button
-            type="button"
-            data-style="ghost"
-            aria-label={rawMode ? "Switch to rich editor" : "View raw markdown"}
-            tooltip={rawMode ? "Switch to rich editor" : "View raw markdown"}
-            onClick={onToggleRawMode}
-            data-active={rawMode ? "" : undefined}
-            className={rawMode ? "raw-mode-active" : ""}
-          >
-            <SourceViewIcon className="tiptap-button-icon" />
-          </Button>
-        )}
-
-        <Separator />
-
-        <ThemeToggle />
+        <EditorActions rawMode={rawMode} onToggleRawMode={onToggleRawMode} />
       </div>
     </header>
   )

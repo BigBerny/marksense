@@ -74,6 +74,16 @@ body,
     [full-end];
   width: 100%;
   position: relative;
+
+  .wide-mode & {
+    --content-width: minmax(0, 1200px);
+    --margin-width: minmax(32px, 1fr);
+
+    // Reserve space for the TOC sidebar in the right margin at wide viewports
+    @media screen and (min-width: 1280px) {
+      --margin-right-width: minmax(15rem, 1fr);
+    }
+  }
 }
 
 // Mobile: single column layout

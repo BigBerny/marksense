@@ -369,17 +369,18 @@ export class MarkdownEditorProvider
 </head>
 <body>
   <script nonce="${nonce}">
-    // Apply the "dark" class synchronously before any painting occurs.
-    // The Tiptap template uses .dark on <html> for dark-mode colors, but
-    // it's normally set by a React useEffect which runs too late.
-    // VS Code webviews add "vscode-dark" to <body> and set the
-    // color-scheme meta tag before our scripts run.
+    // Sync the .dark class on <html> with VS Code's theme.
+    // VS Code adds "vscode-dark" / "vscode-light" to <body> and updates
+    // it when the user switches themes. A MutationObserver keeps the
+    // Tiptap .dark class in sync at all times.
     (function() {
-      var isDark =
-        document.body.classList.contains('vscode-dark') ||
-        !!document.querySelector('meta[name="color-scheme"][content="dark"]') ||
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (isDark) document.documentElement.classList.add('dark');
+      function syncTheme() {
+        var isDark = document.body.classList.contains('vscode-dark');
+        document.documentElement.classList.toggle('dark', isDark);
+      }
+      syncTheme();
+      new MutationObserver(syncTheme)
+        .observe(document.body, { attributes: true, attributeFilter: ['class'] });
     })();
   </script>
   <div id="root"></div>

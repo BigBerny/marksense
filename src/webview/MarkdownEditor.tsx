@@ -66,7 +66,7 @@ import { DragContextMenu } from "@/components/tiptap-ui/drag-context-menu"
 
 
 // --- Template components ---
-import { NotionEditorHeader } from "@/components/tiptap-templates/notion-like/notion-like-editor-header"
+import { NotionEditorHeader, EditorActions } from "@/components/tiptap-templates/notion-like/notion-like-editor-header"
 import { MobileToolbar } from "@/components/tiptap-templates/notion-like/notion-like-editor-mobile-toolbar"
 import { NotionToolbarFloating } from "@/components/tiptap-templates/notion-like/notion-like-editor-toolbar-floating"
 import { TocSidebar } from "@/components/tiptap-node/toc-node"
@@ -573,7 +573,7 @@ function MarkdownEditorInner() {
 
             <div className="notion-like-editor-layout">
               <MarkdownEditorContent editor={editor} />
-              <TocSidebar topOffset={48} />
+              <TocSidebar topOffset={48} actions={<EditorActions rawMode={rawMode} onToggleRawMode={handleToggleRawMode} />} />
             </div>
 
             <TableExtendRowColumnButtons />

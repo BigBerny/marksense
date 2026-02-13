@@ -20,12 +20,17 @@ export interface TocSidebarProps extends React.HTMLAttributes<HTMLDivElement> {
    * @default 0
    */
   topOffset?: number
+  /**
+   * Action buttons rendered below the TOC on wide screens (>= 1280px).
+   */
+  actions?: React.ReactNode
 }
 
 export function TocSidebar({
   className,
   maxShowCount = 20,
   topOffset = 0,
+  actions,
   ...props
 }: TocSidebarProps) {
   const { tocContent, navigateToHeading, normalizeHeadingDepths } = useToc()
@@ -186,6 +191,12 @@ export function TocSidebar({
               )
             })}
           </div>
+
+          {actions && (
+            <div className="toc-sidebar-actions">
+              {actions}
+            </div>
+          )}
 
           {/* TOC nav */}
           <nav

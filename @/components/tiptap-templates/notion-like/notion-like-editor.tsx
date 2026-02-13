@@ -82,7 +82,7 @@ import { TIPTAP_AI_APP_ID } from "@/lib/tiptap-collab-utils"
 import "@/components/tiptap-templates/notion-like/notion-like-editor.scss"
 
 // --- Content ---
-import { NotionEditorHeader } from "@/components/tiptap-templates/notion-like/notion-like-editor-header"
+import { NotionEditorHeader, EditorActions } from "@/components/tiptap-templates/notion-like/notion-like-editor-header"
 import { MobileToolbar } from "@/components/tiptap-templates/notion-like/notion-like-editor-mobile-toolbar"
 import { NotionToolbarFloating } from "@/components/tiptap-templates/notion-like/notion-like-editor-toolbar-floating"
 import { SetupErrorMessage } from "@/components/setup-error-message"
@@ -187,6 +187,33 @@ export function EditorProvider(props: EditorProviderProps) {
 
   const { user } = useUser()
   const { setTocContent } = useToc()
+
+  // Auto-sync .dark class with the environment (VS Code body class or system preference)
+  useEffect(() => {
+    const isVscode =
+      document.body.classList.contains("vscode-dark") ||
+      document.body.classList.contains("vscode-light") ||
+      document.body.classList.contains("vscode-high-contrast")
+
+    if (isVscode) {
+      const sync = () => {
+        document.documentElement.classList.toggle(
+          "dark",
+          document.body.classList.contains("vscode-dark")
+        )
+      }
+      sync()
+      const observer = new MutationObserver(sync)
+      observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
+      return () => observer.disconnect()
+    }
+
+    const mq = window.matchMedia("(prefers-color-scheme: dark)")
+    const sync = () => document.documentElement.classList.toggle("dark", mq.matches)
+    sync()
+    mq.addEventListener("change", sync)
+    return () => mq.removeEventListener("change", sync)
+  }, [])
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -319,7 +346,7 @@ export function EditorProvider(props: EditorProviderProps) {
         <NotionEditorHeader />
         <div className="notion-like-editor-layout">
           <EditorContentArea />
-          <TocSidebar topOffset={48} />
+          <TocSidebar topOffset={48} actions={<EditorActions />} />
         </div>
 
         <TableExtendRowColumnButtons />

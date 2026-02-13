@@ -33,10 +33,17 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   paragraph: "Text",
   heading: "Heading",
   blockquote: "Blockquote",
-  listItem: "List Item",
-  codeBlock: "Code Block",
+  listItem: "List item",
+  bulletList: "Bullet list",
+  orderedList: "Numbered list",
+  taskList: "Task list",
+  taskItem: "Task item",
+  codeBlock: "Code block",
   table: "Table",
   tocNode: "Table of contents",
+  horizontalRule: "Divider",
+  image: "Image",
+  imageUpload: "Image",
 }
 export type OverflowPosition = "none" | "top" | "bottom" | "both"
 
