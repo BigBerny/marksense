@@ -1,8 +1,16 @@
 .vscode/**
 .vscode-test/**
 src/**
+@/**
 node_modules/**
 tsconfig.json
 esbuild.mjs
-*.map
+**/*.map
 .gitignore
+.git/**
+.env
+.env.*
+!.env.example
+.claude/**
+sample.md
+*.vsix

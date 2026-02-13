@@ -1,23 +1,37 @@
 {
-  "name": "markdown-tiptap-editor",
-  "displayName": "Markdown Tiptap Editor",
-  "description": "View and edit Markdown files in a beautiful Notion-like Tiptap editor with AI assistance",
+  "name": "marksense",
+  "displayName": "Marksense",
+  "description": "A beautiful Notion-like Markdown editor for VS Code, powered by Tiptap — with AI assistance, slash commands, and rich formatting",
   "version": "0.1.0",
-  "publisher": "your-publisher-name",
+  "publisher": "janisberneker",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/janisberneker/marksense"
+  },
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "markdown",
+    "editor",
+    "notion",
+    "tiptap",
+    "rich text",
+    "mdx",
+    "wysiwyg"
+  ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "customEditors": [
       {
-        "viewType": "markdownTiptap.editor",
-        "displayName": "Tiptap Markdown Editor",
+        "viewType": "marksense.editor",
+        "displayName": "Marksense Editor",
         "selector": [
           {
             "filenamePattern": "*.md"
@@ -33,19 +47,19 @@
       }
     ],
     "configuration": {
-      "title": "Tiptap Markdown Editor",
+      "title": "Marksense",
       "properties": {
-        "markdownTiptap.aiAppId": {
+        "marksense.aiAppId": {
           "type": "string",
           "default": "",
           "description": "Tiptap Cloud AI App ID (from https://cloud.tiptap.dev)"
         },
-        "markdownTiptap.aiToken": {
+        "marksense.aiToken": {
           "type": "string",
           "default": "",
           "description": "Tiptap Cloud AI JWT Token"
         },
-        "markdownTiptap.autoSaveDelay": {
+        "marksense.autoSaveDelay": {
           "type": "number",
           "default": 300,
           "minimum": 100,
@@ -58,7 +72,8 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "package": "vsce package"
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
+    "vscode:prepublish": "node esbuild.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.17",
@@ -110,7 +125,7 @@
     "@types/lodash.throttle": "^4.1.9",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.85.0",
     "esbuild": "^0.27.3",
     "esbuild-sass-plugin": "^3.6.0",
     "sass": "^1.97.3",

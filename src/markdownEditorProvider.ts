@@ -124,7 +124,7 @@ class MarkdownDocument implements vscode.CustomDocument {
 export class MarkdownEditorProvider
   implements vscode.CustomEditorProvider<MarkdownDocument>
 {
-  private static readonly viewType = "markdownTiptap.editor";
+  private static readonly viewType = "marksense.editor";
 
   /**
    * Fires when document content changes (marks it dirty in VS Code).
@@ -181,7 +181,7 @@ export class MarkdownEditorProvider
     };
 
     // Read extension settings, with .env file as fallback
-    const config = vscode.workspace.getConfiguration("markdownTiptap");
+    const config = vscode.workspace.getConfiguration("marksense");
     const env = readEnvFile(this.context.extensionUri.fsPath);
     const aiAppId =
       config.get<string>("aiAppId", "") || env["TIPTAP_AI_APP_ID"] || "";
@@ -223,7 +223,7 @@ export class MarkdownEditorProvider
               content: headContent,
             });
           } catch (err) {
-            console.error("[MarkdownTiptap] Error fetching diff:", err);
+            console.error("[Marksense] Error fetching diff:", err);
           }
         }
       }
@@ -365,7 +365,7 @@ export class MarkdownEditorProvider
     }
   </style>
   <link href="${styleUri}" rel="stylesheet">
-  <title>Tiptap Markdown Editor</title>
+  <title>Marksense</title>
 </head>
 <body>
   <script nonce="${nonce}">
