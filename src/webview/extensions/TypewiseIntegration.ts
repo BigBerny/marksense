@@ -43,6 +43,7 @@ export interface CorrectionEntry {
   from: number
   to: number
   type: "auto" | "manual"
+  source: "word" | "grammar"
   originalValue: string
   currentValue: string
   suggestions: CorrectionSuggestion[]
@@ -129,6 +130,28 @@ function getTextBeforeCursor(state: EditorState): { text: string; blockStart: nu
   const { $from } = state.selection
   const blockStart = $from.start()
   return { text: state.doc.textBetween(blockStart, $from.pos, ""), blockStart }
+}
+
+/**
+ * Get the word range (from, to) at a given document position.
+ * Returns null if the position is not inside a word.
+ */
+function getWordRangeAtPos(state: EditorState, pos: number): { from: number; to: number } | null {
+  try {
+    const $pos = state.doc.resolve(pos)
+    const blockStart = $pos.start()
+    const blockEnd = $pos.end()
+    const blockText = state.doc.textBetween(blockStart, blockEnd, "")
+    const posInBlock = pos - blockStart
+
+    let wordStart = posInBlock
+    let wordEnd = posInBlock
+    while (wordStart > 0 && /\w/.test(blockText[wordStart - 1])) wordStart--
+    while (wordEnd < blockText.length && /\w/.test(blockText[wordEnd])) wordEnd++
+
+    if (wordStart === wordEnd) return null
+    return { from: blockStart + wordStart, to: blockStart + wordEnd }
+  } catch { return null }
 }
 
 /**
@@ -225,6 +248,10 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     let correctionAbort: AbortController | null = null
     let grammarAbort: AbortController | null = null
     let grammarTimer: ReturnType<typeof setTimeout> | null = null
+    let idleSpellTimer: ReturnType<typeof setTimeout> | null = null
+    // Prevents view.update (2s) from overwriting a faster grammar schedule
+    // set by handleTextInput (800ms) in the same transaction cycle.
+    let grammarScheduledFast = false
 
     // ── Suppress hover popup until mouse actually moves ───────────────
     // After an auto-correction the browser fires mouseover on the new
@@ -319,6 +346,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             from: wordFrom,
             to: wordFrom + replacementWord.length,
             type: "auto",
+            source: "word",
             originalValue: originalWord,
             currentValue: replacementWord,
             suggestions: data.suggestions || [],
@@ -344,6 +372,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               from: wordFrom,
               to: wordTo,
               type: "manual",
+              source: "word",
               originalValue: originalWord,
               currentValue: originalWord,
               suggestions: data.suggestions || [],
@@ -485,6 +514,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               from: wordFrom,
               to: wordFrom + replacementWord.length,
               type: "auto",
+              source: "grammar",
               originalValue: originalWord,
               currentValue: replacementWord,
               suggestions,
@@ -504,6 +534,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               from: wordFrom,
               to: wordTo,
               type: "manual",
+              source: "grammar",
               originalValue: originalWord,
               currentValue: originalWord,
               suggestions,
@@ -521,9 +552,10 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     /**
      * Schedule grammar correction with a debounce.
-     * Called when a sentence end is detected or when editing within a complete sentence.
+     * @param delay  Debounce in ms. Defaults to 2000 (general edits).
+     *               Pass 800 for explicit sentence-end triggers.
      */
-    function scheduleGrammarCheck(view: EditorView) {
+    function scheduleGrammarCheck(view: EditorView, delay = 2000) {
       if (grammarTimer) clearTimeout(grammarTimer)
       grammarTimer = setTimeout(() => {
         const { $from } = view.state.selection
@@ -531,11 +563,9 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
         const sentence = getSentenceAtPos(view.state, pos)
         if (!sentence) return
 
-        // Get full text up to and including the sentence (context for the API)
-        const blockStart = $from.start()
         const fullText = view.state.doc.textBetween(0, sentence.to, "\n")
         checkGrammar(sentence.text, sentence.from, fullText)
-      }, 800) // Small delay to avoid firing while still typing
+      }, delay)
     }
 
     // ── API: sentence completion ──────────────────────────────────────
@@ -766,22 +796,43 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           // a correction boundary (e.g. user appended letters), the word is
           // changing and the correction is stale.
           if (tr.docChanged && !meta) {
+            // Remove word corrections whose text changed or word was extended
             corrections = corrections.filter((c) => {
               if (c.from < 0 || c.to > newState.doc.content.size) return false
               const textNow = newState.doc.textBetween(c.from, c.to, "")
               if (textNow !== c.currentValue) return false
-              // Word extended at the end? (e.g. user typed more letters after the word)
               if (c.to < newState.doc.content.size) {
                 const charAfter = newState.doc.textBetween(c.to, c.to + 1, "")
                 if (/\w/.test(charAfter)) return false
               }
-              // Word extended at the start?
               if (c.from > 0) {
                 const charBefore = newState.doc.textBetween(c.from - 1, c.from, "")
                 if (/\w/.test(charBefore)) return false
               }
               return true
             })
+
+            // Remove grammar corrections in any block that was edited.
+            // Grammar depends on sentence context, so editing anywhere in
+            // the block invalidates grammar corrections in that block.
+            const editedBlockStarts = new Set<number>()
+            tr.steps.forEach((step: any) => {
+              if (step.from != null) {
+                try {
+                  const mapped = tr.mapping.map(step.from)
+                  editedBlockStarts.add(newState.doc.resolve(mapped).start())
+                } catch { /* position may be out of range */ }
+              }
+            })
+            if (editedBlockStarts.size > 0) {
+              corrections = corrections.filter((c) => {
+                if (c.source !== "grammar") return true
+                try {
+                  return !editedBlockStarts.has(newState.doc.resolve(c.from).start())
+                } catch { return true }
+              })
+            }
+
             if (
               activeCorrection &&
               !corrections.find((c) => c.id === activeCorrection!.id)
@@ -921,7 +972,8 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
                 view.dispatch(tr)
                 // Still trigger grammar check if sentence-ending punctuation
                 if (SENTENCE_END_PUNCTUATION.includes(text)) {
-                  scheduleGrammarCheck(view)
+                  scheduleGrammarCheck(view, 800)
+                  grammarScheduledFast = true
                 }
                 return true
               }
@@ -955,7 +1007,8 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               view.state.doc.textBetween(from - 1, from, ""))) ||
             (text === "\n")
           if (isSentenceEnd) {
-            scheduleGrammarCheck(view)
+            scheduleGrammarCheck(view, 800)
+            grammarScheduledFast = true
           }
 
           return false
@@ -965,11 +1018,12 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       view() {
         return {
           update(view, prevState) {
+            const docChanged = !prevState.doc.eq(view.state.doc)
+
             // ── Cursor-jump detector ──────────────────────────────────
             const prevAnchor = prevState.selection.anchor
             const newAnchor = view.state.selection.anchor
             if (Math.abs(newAnchor - prevAnchor) > 3) {
-              const docChanged = !prevState.doc.eq(view.state.doc)
               const prevPs = typewisePluginKey.getState(prevState) as TypewisePluginState | undefined
               const newPs = typewisePluginKey.getState(view.state) as TypewisePluginState | undefined
               console.debug("[Typewise] cursor jump:", {
@@ -985,34 +1039,65 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               })
             }
 
-            if (!prevState.doc.eq(view.state.doc)) {
+            // ── Spell-check when cursor moves to a different word ─────
+            // Compare by word start position only — the end shifts as the
+            // user types more characters, which is still the same word.
+            if (opts.autocorrect) {
+              const prevWord = getWordRangeAtPos(prevState, prevAnchor)
+              const newWord = getWordRangeAtPos(view.state, newAnchor)
+              const leftWord = prevWord && (
+                !newWord ||
+                newWord.from !== prevWord.from
+              )
+              if (leftWord) {
+                try {
+                  const $prev = prevState.doc.resolve(prevAnchor)
+                  const prevBlockStart = $prev.start()
+                  const textUpToWord = prevState.doc.textBetween(prevBlockStart, prevWord.to, "")
+                  if (textUpToWord.trim().length >= 2) {
+                    checkFinalWord(textUpToWord, prevBlockStart)
+                  }
+                } catch { /* position may be invalid after drastic doc change */ }
+              }
+            }
+
+            // ── Idle spell-check: check current word after 5 s ────────
+            if (idleSpellTimer) clearTimeout(idleSpellTimer)
+            if (opts.autocorrect) {
+              idleSpellTimer = setTimeout(() => {
+                if (tiptapEditor.isDestroyed) return
+                const wordRange = getWordRangeAtPos(view.state, view.state.selection.$from.pos)
+                if (wordRange) {
+                  const $from = view.state.selection.$from
+                  const blockStart = $from.start()
+                  const textUpToWord = view.state.doc.textBetween(blockStart, wordRange.to, "")
+                  if (textUpToWord.trim().length >= 2) {
+                    checkFinalWord(textUpToWord, blockStart)
+                  }
+                }
+              }, 5000)
+            }
+
+            if (docChanged) {
               if (opts.predictions) {
                 const ps = typewisePluginKey.getState(view.state)
-                // Only schedule a new fetch if there's no active prediction
                 if (!ps?.prediction) {
                   schedulePrediction(view)
                 }
               }
 
-              // Grammar check: when editing inside an existing complete sentence
-              if (opts.autocorrect) {
-                const { $from } = view.state.selection
-                const pos = $from.pos
-                const sentence = getSentenceAtPos(view.state, pos)
-                if (sentence) {
-                  // Check if text AFTER the cursor contains sentence-ending punctuation
-                  // (i.e. we're editing inside an already-complete sentence)
-                  const textAfterCursor = sentence.text.slice(pos - sentence.from)
-                  if (SENTENCE_END_PUNCTUATION.some(p => textAfterCursor.includes(p))) {
-                    scheduleGrammarCheck(view)
-                  }
-                }
+              // Re-check grammar after any edit (2 s debounce) unless
+              // handleTextInput already set a faster schedule this cycle.
+              if (opts.autocorrect && !grammarScheduledFast) {
+                scheduleGrammarCheck(view)
               }
+              grammarScheduledFast = false
             }
           },
           destroy() {
             if (predictionTimer) clearTimeout(predictionTimer)
             if (grammarTimer) clearTimeout(grammarTimer)
+            if (idleSpellTimer) clearTimeout(idleSpellTimer)
             clearCachedGhostElement()
           },
         }

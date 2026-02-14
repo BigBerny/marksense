@@ -249,7 +249,8 @@
   content: attr(data-placeholder);
 }
 
-.is-empty.with-slash[data-placeholder]:has(
+.tiptap.ProseMirror.ProseMirror-focused
+  .is-empty.with-slash[data-placeholder]:has(
     > .ProseMirror-trailingBreak:only-child
   )::before {
   content: "Write, type '/' for commands…";
