@@ -183,18 +183,15 @@ export class MarkdownEditorProvider
     // Read extension settings, with .env file as fallback
     const config = vscode.workspace.getConfiguration("marksense");
     const env = readEnvFile(this.context.extensionUri.fsPath);
-    const aiAppId =
-      config.get<string>("aiAppId", "") || env["TIPTAP_AI_APP_ID"] || "";
-    const aiToken =
-      config.get<string>("aiToken", "") || env["TIPTAP_AI_TOKEN"] || "";
-    const typewiseToken = env["TYPEWISE_TOKEN"] || "";
+    const typewiseToken =
+      config.get<string>("typewiseToken", "") || env["TYPEWISE_TOKEN"] || "";
     const autoSaveDelay = config.get<number>("autoSaveDelay", 300);
 
     // Generate the webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { aiAppId, aiToken, typewiseToken, autoSaveDelay }
+      { typewiseToken, autoSaveDelay }
     );
 
     // --- Sync: webview → document model ---
@@ -324,8 +321,6 @@ export class MarkdownEditorProvider
     webview: vscode.Webview,
     initialContent: string,
     settings: {
-      aiAppId: string;
-      aiToken: string;
       typewiseToken: string;
       autoSaveDelay: number;
     }

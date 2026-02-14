@@ -53,8 +53,6 @@ const webviewConfig = {
     "process.env.TIPTAP_COLLAB_DOC_PREFIX": '""',
     "process.env.TIPTAP_COLLAB_APP_ID": '""',
     "process.env.TIPTAP_COLLAB_TOKEN": '""',
-    "process.env.TIPTAP_AI_APP_ID": '"__REPLACED_AT_RUNTIME__"',
-    "process.env.TIPTAP_AI_TOKEN": '"__REPLACED_AT_RUNTIME__"',
     "process.env.USE_JWT_TOKEN_API_ENDPOINT": '""',
   },
   // Ensure JSON imports work (for content.json etc.)

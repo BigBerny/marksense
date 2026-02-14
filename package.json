@@ -2,7 +2,7 @@
   "name": "marksense",
   "displayName": "Marksense",
   "description": "A beautiful Notion-like Markdown editor for VS Code, powered by Tiptap — with AI assistance, slash commands, and rich formatting",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "janisberneker",
   "license": "MIT",
   "repository": {
@@ -22,7 +22,6 @@
     "notion",
     "tiptap",
     "rich text",
-    "mdx",
     "wysiwyg"
   ],
   "activationEvents": [],
@@ -38,9 +37,6 @@
           },
           {
             "filenamePattern": "*.markdown"
-          },
-          {
-            "filenamePattern": "*.mdx"
           }
         ],
         "priority": "option"
@@ -49,15 +45,10 @@
     "configuration": {
       "title": "Marksense",
       "properties": {
-        "marksense.aiAppId": {
+        "marksense.typewiseToken": {
           "type": "string",
           "default": "",
-          "description": "Tiptap Cloud AI App ID (from https://cloud.tiptap.dev)"
-        },
-        "marksense.aiToken": {
-          "type": "string",
-          "default": "",
-          "description": "Tiptap Cloud AI JWT Token"
+          "description": "Typewise API token for autocorrect, grammar correction, and sentence completion"
         },
         "marksense.autoSaveDelay": {
           "type": "number",

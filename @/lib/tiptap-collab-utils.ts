@@ -7,8 +7,6 @@ import { isTextSelection, isNodeSelection, posToDOMRect } from "@tiptap/react"
 declare global {
   interface Window {
     __SETTINGS__?: {
-      aiAppId: string
-      aiToken: string
       typewiseToken: string
       autoSaveDelay: number
     }
@@ -21,11 +19,10 @@ export const TIPTAP_COLLAB_DOC_PREFIX = ""
 export const TIPTAP_COLLAB_APP_ID = ""
 export const TIPTAP_COLLAB_TOKEN = ""
 
-// TipTap AI - read from runtime settings injected by the extension host
-export const TIPTAP_AI_APP_ID =
-  (typeof window !== "undefined" && window.__SETTINGS__?.aiAppId) || ""
-export const TIPTAP_AI_TOKEN =
-  (typeof window !== "undefined" && window.__SETTINGS__?.aiToken) || ""
+// TipTap AI — no longer configured via extension settings.
+// Kept as empty-string exports so template components that reference them still compile.
+export const TIPTAP_AI_APP_ID = ""
+export const TIPTAP_AI_TOKEN = ""
 
 export const USE_JWT_TOKEN_API_ENDPOINT = ""
 
@@ -278,21 +275,6 @@ export const fetchAiToken = async () => {
     }
   }
 
-  // TODO: as a developer, use the example JWT token provided in the Tiptap
-  // Cloud dashboard for local development only. In production, implement an API
-  // endpoint that generates a new JWT token in the server. Then, call that API
-  // endpoint from this function.
-  // When you've implemented the API endpoint, remove the code below.
-  if (!TIPTAP_AI_TOKEN) {
-    // Return null to indicate setup error - the UI will handle displaying the error message
-    return null
-  } else {
-    console.warn(
-      "You are using the example JWT token provided in the Tiptap Cloud dashboard. This is only for local development and should not be used in production. In production, implement an API endpoint that generates a new JWT token in the server, and call that API endpoint from the fetchAiToken function. More info in the docs: https://tiptap.dev/docs/ui-components/templates/notion-like-editor"
-    )
-  }
-
-  // A hardcoded token for demonstration purposes.
-  // TODO: remove this in production and use the API endpoint instead
-  return TIPTAP_AI_TOKEN
+  // Tiptap Cloud AI is not configured in this extension
+  return null
 }

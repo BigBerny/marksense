@@ -284,7 +284,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     // ── API: final word correction ────────────────────────────────────
 
     async function checkFinalWord(sentenceText: string, blockStart: number) {
-      if (!opts.autocorrect) return
+      if (!opts.autocorrect || !opts.apiToken) return
 
       // Abort any in-flight correction request
       if (correctionAbort) correctionAbort.abort()
@@ -458,7 +458,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     }
 
     async function checkGrammar(sentenceText: string, sentenceFrom: number, fullText: string) {
-      if (!opts.autocorrect) return
+      if (!opts.autocorrect || !opts.apiToken) return
 
       if (grammarAbort) grammarAbort.abort()
       grammarAbort = new AbortController()
@@ -573,7 +573,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     // ── API: sentence completion ──────────────────────────────────────
 
     async function fetchPrediction(text: string, cursorPos: number, requestId: number) {
-      if (!opts.predictions || text.trim().length < 3) return
+      if (!opts.predictions || !opts.apiToken || text.trim().length < 3) return
 
       try {
         const data = await typewisePost(
