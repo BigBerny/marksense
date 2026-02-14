@@ -72,7 +72,7 @@ import { NotionToolbarFloating } from "@/components/tiptap-templates/notion-like
 import { TocSidebar } from "@/components/tiptap-node/toc-node"
 
 // --- Lib ---
-import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
+import { MAX_FILE_SIZE } from "@/lib/tiptap-utils"
 
 
 // --- Styles ---
@@ -100,6 +100,120 @@ import {
 } from "./frontmatterUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
 import { MdxTag } from "./extensions/MdxTagExtension"
+
+// ─── Image helpers ───────────────────────────────────────────────────────────
+
+/** The webview URI for the document's directory (set by the extension host). */
+const documentDirWebviewUri: string =
+  (window as any).__SETTINGS__?.documentDirWebviewUri || ""
+
+/**
+ * Replace relative image paths in a markdown string with absolute webview URIs
+ * so that `<img>` elements in the Tiptap editor can display local files.
+ */
+function resolveImageUrls(markdown: string, baseUri: string): string {
+  if (!baseUri) return markdown
+  return markdown.replace(
+    /!\[([^\]]*)\]\((\s*)([^)"\s]+)(\s*(?:"[^"]*")?\s*)\)/g,
+    (match, alt, leading, url, rest) => {
+      // Skip URLs that are already absolute
+      if (/^(https?:|data:|vscode-webview:|vscode-resource:|file:)/.test(url))
+        return match
+      if (url.startsWith("/")) return match
+      return `![${alt}](${leading}${baseUri}/${url}${rest})`
+    }
+  )
+}
+
+/**
+ * Replace absolute webview URIs in a markdown string with relative paths
+ * so that the stored markdown is portable and doesn't contain webview-specific URLs.
+ */
+function unresolveImageUrls(markdown: string, baseUri: string): string {
+  if (!baseUri) return markdown
+  const escaped = baseUri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return markdown.replace(new RegExp(escaped + "/", "g"), "")
+}
+
+/**
+ * Create an image upload handler that sends files to the extension host
+ * for saving to disk, and returns the webview-displayable URL.
+ */
+function createImageUploadHandler(): (
+  file: File,
+  onProgress?: (event: { progress: number }) => void,
+  abortSignal?: AbortSignal
+) => Promise<string> {
+  return (file, onProgress, abortSignal) => {
+    return new Promise<string>((resolve, reject) => {
+      if (!file) {
+        reject(new Error("No file provided"))
+        return
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        reject(
+          new Error(
+            `File size exceeds maximum allowed (${MAX_FILE_SIZE / (1024 * 1024)}MB)`
+          )
+        )
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (abortSignal?.aborted) {
+          reject(new Error("Upload cancelled"))
+          return
+        }
+
+        const base64Data = (reader.result as string).split(",")[1]
+        const requestId = crypto.randomUUID()
+
+        onProgress?.({ progress: 30 })
+
+        // Listen for the extension host response
+        const handler = (event: MessageEvent) => {
+          const msg = event.data
+          if (msg.type === "uploadImageResult" && msg.id === requestId) {
+            window.removeEventListener("message", handler)
+            if (msg.error) {
+              reject(new Error(msg.error))
+            } else {
+              onProgress?.({ progress: 100 })
+              // Return the webview URI so the image renders in the editor.
+              // When the editor serialises to markdown the URL will be
+              // converted back to a relative path by unresolveImageUrls.
+              const webviewUrl = documentDirWebviewUri
+                ? `${documentDirWebviewUri}/${msg.relativePath}`
+                : msg.relativePath
+              resolve(webviewUrl)
+            }
+          }
+        }
+        window.addEventListener("message", handler)
+
+        vscode.postMessage({
+          type: "uploadImage",
+          id: requestId,
+          data: base64Data,
+          filename: file.name,
+        })
+        onProgress?.({ progress: 50 })
+
+        // Safety timeout
+        setTimeout(() => {
+          window.removeEventListener("message", handler)
+          reject(new Error("Image upload timed out"))
+        }, 30_000)
+      }
+      reader.onerror = () => reject(new Error("Failed to read file"))
+      reader.readAsDataURL(file)
+    })
+  }
+}
+
+/** Singleton upload handler (created once, reused across uploads). */
+const handleImageUpload = createImageUploadHandler()
 
 /**
  * Content area that renders the editor with all menus and toolbars.
@@ -167,7 +281,11 @@ function MarkdownEditorInner() {
   const [initialParsed] = useState(() => {
     const raw = window.__INITIAL_CONTENT__ || ""
     const parsed = parseFrontmatter(raw)
-    return { ...parsed, processedBody: wrapJsxComponents(parsed.body) }
+    const wrapped = wrapJsxComponents(parsed.body)
+    return {
+      ...parsed,
+      processedBody: resolveImageUrls(wrapped, documentDirWebviewUri),
+    }
   })
 
   const [currentMarkdown, setCurrentMarkdown] = useState(
@@ -307,8 +425,12 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = ed.getMarkdown()
-        // Restore JSX blocks and prepend frontmatter before syncing
-        const restoredBody = unwrapJsxComponents(md)
+        // Restore JSX blocks, convert webview URIs to relative paths,
+        // and prepend frontmatter before syncing.
+        const restoredBody = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
         const full = serializeFrontmatter(
           frontmatterRef.current,
           restoredBody,
@@ -434,7 +556,10 @@ function MarkdownEditorInner() {
           return
         }
 
-        const processedBody = wrapJsxComponents(parsed.body)
+        const processedBody = resolveImageUrls(
+          wrapJsxComponents(parsed.body),
+          documentDirWebviewUri
+        )
 
         isExternalUpdate.current = true
         const cursorBefore = editor.state.selection.anchor
@@ -525,9 +650,13 @@ function MarkdownEditorInner() {
       if (isDiffMode) exitDiffMode()
 
       // Entering raw mode: show the full file content (frontmatter + body)
+      // with relative image paths (not webview URIs).
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
-      const restoredBody = unwrapJsxComponents(md)
+      const restoredBody = unresolveImageUrls(
+        unwrapJsxComponents(md),
+        documentDirWebviewUri
+      )
       const full = serializeFrontmatter(
         frontmatterRef.current,
         restoredBody,
@@ -539,7 +668,10 @@ function MarkdownEditorInner() {
       // Leaving raw mode: re-parse frontmatter + JSX and update editor
       if (rawContent !== rawContentOriginal.current) {
         const parsed = parseFrontmatter(rawContent)
-        const processedBody = wrapJsxComponents(parsed.body)
+        const processedBody = resolveImageUrls(
+          wrapJsxComponents(parsed.body),
+          documentDirWebviewUri
+        )
         setFrontmatter(parsed.frontmatter)
         frontmatterRef.current = parsed.frontmatter
         rawFrontmatterRef.current = parsed.rawFrontmatter
@@ -571,7 +703,10 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
-        const restoredBody = unwrapJsxComponents(md)
+        const restoredBody = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
         const full = serializeFrontmatter(entries, restoredBody, null)
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
@@ -617,16 +752,18 @@ function MarkdownEditorInner() {
           </div>
         ) : (
           <>
-            {/* Frontmatter key-value panel (only if file has frontmatter) */}
-            {frontmatter && frontmatter.length > 0 && (
-              <FrontmatterPanel
-                entries={frontmatter}
-                onChange={handleFrontmatterChange}
-              />
-            )}
-
             <div className="notion-like-editor-layout">
-              <MarkdownEditorContent editor={editor} />
+              <div className="notion-like-editor-content-column">
+                {/* Frontmatter key-value panel (only if file has frontmatter) */}
+                {frontmatter && frontmatter.length > 0 && (
+                  <FrontmatterPanel
+                    entries={frontmatter}
+                    onChange={handleFrontmatterChange}
+                  />
+                )}
+
+                <MarkdownEditorContent editor={editor} />
+              </div>
               <TocSidebar topOffset={48} actions={<EditorActions rawMode={rawMode} onToggleRawMode={handleToggleRawMode} />} />
             </div>
 

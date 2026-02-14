@@ -36,13 +36,12 @@ export function TocSidebar({
   const { tocContent, navigateToHeading, normalizeHeadingDepths } = useToc()
   const hasRestoredHashRef = useRef(false)
 
-  // Track when a click happened so we can ignore scroll events
-  // caused by our own programmatic scrolling for a short time.
-  const lastClickTimeRef = useRef<number | null>(null)
-
-  // Manual active id (from user clicks). This should override scroll-based
-  // and selection-based active states while it's set.
+  // Manual active id (from user clicks). Persists until the user scrolls
+  // the page manually, at which point we hand back to the extension's isActive.
   const [manualActiveId, setManualActiveId] = useState<string | null>(null)
+  // Timestamp of the last programmatic scroll (from a TOC click) so we can
+  // ignore the scroll event it produces.
+  const lastNavTimeRef = useRef<number>(0)
 
   const headingList = useMemo<TableOfContentData>(
     () => tocContent ?? [],
@@ -105,9 +104,8 @@ export function TocSidebar({
       e.preventDefault()
       e.stopPropagation()
 
-      // Mark this heading as manually active
       setManualActiveId(item.id)
-      lastClickTimeRef.current = Date.now()
+      lastNavTimeRef.current = Date.now()
 
       navigateToHeading(item, { topOffset })
     },
@@ -137,33 +135,24 @@ export function TocSidebar({
   }, [headingList, navigateToHeading, topOffset])
 
   /**
-   * Clear manual active id when the user actually scrolls
-   * (but ignore the scroll events that immediately follow our own
-   * programmatic scroll from a click).
+   * Clear manualActiveId when the user scrolls the editor container.
+   * Ignore scroll events that fire immediately after a programmatic
+   * scroll from a TOC click.
    */
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (manualActiveId === null) return
+
+    const container = document.querySelector(".notion-like-editor-wrapper")
+    if (!container) return
 
     const handleScroll = () => {
-      const now = Date.now()
-      const lastClickTime = lastClickTimeRef.current
-
-      // Ignore scroll events within 500ms of a click
-      if (lastClickTime && now - lastClickTime < 500) {
-        return
-      }
-
-      // User is scrolling manually now; go back to scroll-based logic.
-      if (manualActiveId !== null) {
-        setManualActiveId(null)
-      }
+      // Ignore scroll events within 100ms of a TOC click (our own programmatic scroll)
+      if (Date.now() - lastNavTimeRef.current < 100) return
+      setManualActiveId(null)
     }
 
-    window.addEventListener("scroll", handleScroll, { passive: true })
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll)
-    }
+    container.addEventListener("scroll", handleScroll, { passive: true })
+    return () => container.removeEventListener("scroll", handleScroll)
   }, [manualActiveId])
 
   const hasHeadings = headingList.length > 0

@@ -99,8 +99,15 @@ body,
   }
 }
 
-.notion-like-editor-content {
+.notion-like-editor-content-column {
   grid-column: content-start / content-end;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.notion-like-editor-content {
   width: 100%;
   height: 100%;
   display: flex;
@@ -119,6 +126,11 @@ body,
 .notion-like-editor-content .tiptap.ProseMirror.notion-like-editor {
   flex: 1;
   padding: 3rem 3rem 30vh;
+}
+
+/* Reduce top spacing when frontmatter panel is shown above the editor */
+.frontmatter-panel + .notion-like-editor-content .tiptap.ProseMirror.notion-like-editor {
+  padding-top: 1rem;
 }
 
 @media screen and (max-width: 480px) {

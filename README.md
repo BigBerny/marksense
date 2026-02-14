@@ -9,6 +9,7 @@ A VS Code / Cursor extension that lets you view and edit Markdown files in a ric
 - **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
 - **Inline predictions** — sentence completion powered by [Typewise](https://www.typewise.ai) (optional, requires API token)
 - **Spellcheck & grammar** — autocorrect and grammar correction powered by [Typewise](https://www.typewise.ai)
+- **Image upload** — drag & drop or click to upload images; files are saved to an `images/` folder next to the Markdown file and rendered inline
 - **Git diff viewer** — inline change highlighting against the last commit
 - **Frontmatter panel** — edit YAML frontmatter as key-value pairs
 - **Dark / light mode** — follows your VS Code theme

@@ -53,12 +53,29 @@ VS Code settings / .env file
     → MarkdownEditor.tsx reads and passes to Tiptap extensions
 ```
 
+### Image upload flow
+
+When a user uploads an image via the editor's image upload UI:
+
+1. **Webview** reads the file as base64, sends an `uploadImage` message to the extension host.
+2. **Extension host** saves the file to an `images/` directory next to the Markdown file (creates the directory if needed, deduplicates filenames).
+3. Extension host responds with the relative path (e.g. `images/photo.jpg`).
+4. **Webview** resolves the relative path into a webview URI so the image renders in the Tiptap editor.
+
+At the Markdown boundary, two helper functions in `MarkdownEditor.tsx` handle bidirectional URL mapping:
+
+- `resolveImageUrls(markdown, baseUri)` — on load: relative paths → webview URIs (for display).
+- `unresolveImageUrls(markdown, baseUri)` — on save: webview URIs → relative paths (for portable Markdown).
+
+The base URI (`documentDirWebviewUri`) is computed by the extension host and injected via `window.__SETTINGS__`.
+
 ### Key extension points
 
 - **TypewiseIntegration** — ProseMirror plugin for word correction, grammar checking, and ghost-text predictions via the Typewise API. Disabled when no API token is configured.
 - **MdxTagExtension** — (Disabled) Renders JSX/MDX tags as non-editable atom nodes. Code retained for future re-enablement.
 - **DiffHighlight** — Inline diff decorations for git change review.
 - **FrontmatterPanel** — Side panel for editing YAML frontmatter as key-value pairs.
+- **ImageUploadNode** — Drag-and-drop / click-to-upload UI that saves images to disk via the extension host (see "Image upload flow" above).
 
 ## Commands
 

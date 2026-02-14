@@ -9,7 +9,6 @@ import type {
   TableOfContentData,
   TableOfContentDataItem,
 } from "@tiptap/extension-table-of-contents"
-import { selectNodeAndHideFloating } from "@/hooks/use-floating-toolbar-visibility"
 
 type TocState = {
   tocContent: TableOfContentData | null
@@ -86,55 +85,11 @@ export function normalizeHeadingDepths<
 }
 
 /**
- * Check if an element is visible in the viewport
- */
-const isElementVisible = (element: HTMLElement, topOffset: number): boolean => {
-  const rect = element.getBoundingClientRect()
-  const viewportHeight =
-    window.innerHeight || document.documentElement.clientHeight
-
-  // Element is visible if:
-  // - Its top is below the topOffset
-  // - Its bottom is above the viewport top
-  // - Its top is above the viewport bottom
-  return (
-    rect.top >= topOffset &&
-    rect.bottom > topOffset &&
-    rect.top < viewportHeight
-  )
-}
-
-/**
- * Fast smooth scroll using requestAnimationFrame.
- * ~150ms with an ease-out curve — snappy but not jarring.
- */
-const SCROLL_DURATION_MS = 150
-
-const fastSmoothScrollTo = (targetY: number) => {
-  const startY = window.scrollY
-  const delta = targetY - startY
-  if (delta === 0) return
-
-  const start = performance.now()
-
-  const step = (now: number) => {
-    const elapsed = now - start
-    const t = Math.min(elapsed / SCROLL_DURATION_MS, 1)
-    // ease-out cubic: decelerates into the target
-    const eased = 1 - Math.pow(1 - t, 3)
-
-    window.scrollTo(0, startY + delta * eased)
-
-    if (t < 1) {
-      requestAnimationFrame(step)
-    }
-  }
-
-  requestAnimationFrame(step)
-}
-
-/**
- * Low-level navigate helper (not exported in context directly)
+ * Scroll a heading into view instantly, accounting for the sticky header.
+ *
+ * Uses the nearest scrollable ancestor (typically `.notion-like-editor-wrapper`)
+ * rather than `window`, and does NOT move the editor selection — this avoids
+ * triggering Typewise autocorrect and keeps the user's cursor in place.
  */
 const doNavigateToHeading = (
   item: TableOfContentDataItem,
@@ -142,22 +97,20 @@ const doNavigateToHeading = (
 ) => {
   if (!item.dom || typeof window === "undefined") return
 
-  // Only scroll if element is not already visible
-  if (!isElementVisible(item.dom, topOffset)) {
+  // Find the scroll container (the nearest ancestor with overflow scroll/auto)
+  const container =
+    item.dom.closest(".notion-like-editor-wrapper") as HTMLElement | null
+
+  if (container) {
     const rect = item.dom.getBoundingClientRect()
-    const top = rect.top + window.scrollY - topOffset
+    const containerRect = container.getBoundingClientRect()
+    const targetScroll =
+      container.scrollTop + rect.top - containerRect.top - topOffset
 
-    fastSmoothScrollTo(top)
-  }
-
-  if (item.editor && typeof item.pos === "number") {
-    selectNodeAndHideFloating(item.editor, item.pos)
-  }
-
-  if (item.id) {
-    const url = new URL(window.location.href)
-    url.hash = item.id
-    window.history.replaceState(null, "", url.toString())
+    container.scrollTo({ top: targetScroll, behavior: "auto" })
+  } else {
+    // Fallback: use scrollIntoView
+    item.dom.scrollIntoView({ behavior: "auto", block: "start" })
   }
 }
 

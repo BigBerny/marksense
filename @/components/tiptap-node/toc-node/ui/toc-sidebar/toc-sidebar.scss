@@ -180,7 +180,6 @@
 
     &--active {
       color: var(--tt-toc-sidebar-text-active-color);
-      font-weight: 500;
     }
 
     &[data-depth="1"] { --toc-depth: 1; }

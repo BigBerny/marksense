@@ -173,12 +173,26 @@ export class MarkdownEditorProvider
     const uriKey = document.uri.toString();
     this.webviewPanels.set(uriKey, webviewPanel);
 
+    // Allow the webview to load resources from both the extension dist
+    // folder and the workspace (for user images and other local assets).
+    const documentDir = vscode.Uri.file(path.dirname(document.uri.fsPath));
+    const workspaceRoots =
+      vscode.workspace.workspaceFolders?.map((f) => f.uri) ?? [];
+
     webviewPanel.webview.options = {
       enableScripts: true,
       localResourceRoots: [
         vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+        documentDir,
+        ...workspaceRoots,
       ],
     };
+
+    // Webview URI for the document's directory — used by the webview to
+    // resolve relative image paths for display.
+    const documentDirWebviewUri = webviewPanel.webview
+      .asWebviewUri(documentDir)
+      .toString();
 
     // Read extension settings, with .env file as fallback
     const config = vscode.workspace.getConfiguration("marksense");
@@ -191,7 +205,7 @@ export class MarkdownEditorProvider
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { typewiseToken, autoSaveDelay }
+      { typewiseToken, autoSaveDelay, documentDirWebviewUri }
     );
 
     // --- Sync: webview → document model ---
@@ -199,13 +213,13 @@ export class MarkdownEditorProvider
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
     const messageSubscription = webviewPanel.webview.onDidReceiveMessage(
-      (message: { type: string; content?: string }) => {
-        if (message.type === "edit" && message.content !== undefined) {
+      async (message: { type: string; [key: string]: unknown }) => {
+        if (message.type === "edit" && typeof message.content === "string") {
           if (debounceTimer) clearTimeout(debounceTimer);
 
           debounceTimer = setTimeout(() => {
             if (message.content === document.content) return;
-            document.content = message.content!;
+            document.content = message.content as string;
             // Tell VS Code the document is dirty
             this._onDidChangeCustomDocument.fire({ document });
           }, autoSaveDelay);
@@ -221,6 +235,54 @@ export class MarkdownEditorProvider
             });
           } catch (err) {
             console.error("[Marksense] Error fetching diff:", err);
+          }
+        }
+
+        // --- Image upload: save file to disk and return relative path ---
+        if (message.type === "uploadImage") {
+          const id = message.id as string;
+          const data = message.data as string;
+          const filename = message.filename as string;
+
+          try {
+            const docDir = path.dirname(document.uri.fsPath);
+            const imagesDir = path.join(docDir, "images");
+
+            // Create images directory if it doesn't exist
+            await fs.promises.mkdir(imagesDir, { recursive: true });
+
+            // Pick a unique filename to avoid overwriting existing files
+            let finalName = filename;
+            let counter = 1;
+            const ext = path.extname(filename);
+            const base = path.basename(filename, ext);
+
+            while (fs.existsSync(path.join(imagesDir, finalName))) {
+              finalName = `${base}-${counter}${ext}`;
+              counter++;
+            }
+
+            // Decode base64 and write the file
+            const buffer = Buffer.from(data, "base64");
+            await fs.promises.writeFile(
+              path.join(imagesDir, finalName),
+              buffer
+            );
+
+            webviewPanel.webview.postMessage({
+              type: "uploadImageResult",
+              id,
+              relativePath: `images/${finalName}`,
+            });
+          } catch (err: unknown) {
+            const errMsg =
+              err instanceof Error ? err.message : "Upload failed";
+            console.error("[Marksense] Image upload failed:", err);
+            webviewPanel.webview.postMessage({
+              type: "uploadImageResult",
+              id,
+              error: errMsg,
+            });
           }
         }
       }
@@ -323,6 +385,7 @@ export class MarkdownEditorProvider
     settings: {
       typewiseToken: string;
       autoSaveDelay: number;
+      documentDirWebviewUri: string;
     }
   ): string {
     const scriptUri = webview.asWebviewUri(
