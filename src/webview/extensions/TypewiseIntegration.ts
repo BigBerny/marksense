@@ -379,6 +379,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             }
             const manualTr = curState.tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
             manualTr.setMeta("addToHistory", false)
+            suppressHoverUntilMove = true
             view.dispatch(manualTr)
           }
         }
@@ -541,6 +542,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             }
             const manualTr = view.state.tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
             manualTr.setMeta("addToHistory", false)
+            suppressHoverUntilMove = true
             view.dispatch(manualTr)
           }
         }
@@ -898,10 +900,29 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             }
             return false
           },
-          mousemove(_view, _event) {
+          mousemove(view, event) {
             // Clear the suppress flag on real mouse movement so
             // subsequent hovers can open the correction popup.
-            if (suppressHoverUntilMove) suppressHoverUntilMove = false
+            if (suppressHoverUntilMove) {
+              suppressHoverUntilMove = false
+              // mouseover won't re-fire if the pointer is still inside the
+              // same correction element, so check here and open the popup.
+              const target = event.target as HTMLElement
+              const corrId =
+                target?.getAttribute("data-tw-correction-id") ||
+                target?.closest("[data-tw-correction-id]")?.getAttribute("data-tw-correction-id")
+              if (corrId) {
+                const ps = typewisePluginKey.getState(view.state)
+                if (ps?.activeCorrection?.id !== corrId) {
+                  view.dispatch(
+                    view.state.tr.setMeta(typewisePluginKey, {
+                      type: "set-active-correction",
+                      id: corrId,
+                    })
+                  )
+                }
+              }
+            }
             return false
           },
           mouseover(view, event) {
@@ -953,6 +974,16 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
         // Trigger corrections on word boundaries + grammar on sentence end
         handleTextInput(view, from, _to, text) {
+          // Close the correction popup while the user is typing so it
+          // doesn't obscure the text being edited.
+          suppressHoverUntilMove = true
+          const ps0 = typewisePluginKey.getState(view.state)
+          if (ps0?.activeCorrection) {
+            view.dispatch(
+              view.state.tr.setMeta(typewisePluginKey, { type: "close-popup" })
+            )
+          }
+
           // Smart space: if we just inserted a trailing space after a prediction
           // and the user types punctuation, reattach it to the previous word.
           // "example |" + "." → "example. |"
