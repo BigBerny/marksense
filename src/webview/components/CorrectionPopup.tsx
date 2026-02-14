@@ -16,6 +16,13 @@ import {
   type CorrectionEntry,
   type TypewisePluginState,
 } from "../extensions/TypewiseIntegration"
+import { TextSelection } from "@tiptap/pm/state"
+
+import { Card, CardBody } from "@/components/tiptap-ui-primitive/card"
+import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
+import { Separator } from "@/components/tiptap-ui-primitive/separator"
+import { Badge } from "@/components/tiptap-ui-primitive/badge"
+import { Label } from "@/components/tiptap-ui-primitive/label"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -25,28 +32,28 @@ const MAX_MANUAL_SUGGESTIONS = 4
 // ─── Inline SVG icons (Tabler-style) ──────────────────────────────────────────
 
 const IconThumbUp = () => (
-  <svg className="tw-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg className="tiptap-button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M7 11v8a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1v-7a1 1 0 0 1 1 -1h3a4 4 0 0 0 4 -4v-1a2 2 0 0 1 4 0v5h3a2 2 0 0 1 2 2l-1 5a2 3 0 0 1 -2 2h-7a3 3 0 0 1 -3 -3" />
   </svg>
 )
 
 const IconArrowBackUp = () => (
-  <svg className="tw-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg className="tiptap-button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 14l-4 -4l4 -4" />
     <path d="M5 10h11a4 4 0 1 1 0 8h-1" />
   </svg>
 )
 
 const IconBook = () => (
-  <svg className="tw-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg className="tiptap-button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 19a9 9 0 0 1 9 0a9 9 0 0 1 9 0" />
     <path d="M3 6a9 9 0 0 1 9 0a9 9 0 0 1 9 0" />
     <path d="M3 6l0 13" /><path d="M12 6l0 13" /><path d="M21 6l0 13" />
   </svg>
 )
 
-const IconReturn = () => (
-  <svg className="tw-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const IconReturn = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 18l-6 -6l6 -6" />
     <path d="M3 12h16v-7" />
   </svg>
@@ -238,8 +245,10 @@ export function CorrectionPopup({ editor }: CorrectionPopupProps) {
       if (item.action === "neverCorrect") {
         addToDictionary(item.value)
         if (corr.type === "auto") {
+          const sel = editor.state.selection
           const { tr } = editor.state
           tr.insertText(corr.originalValue, corr.from, corr.to)
+          try { tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(sel.anchor), tr.mapping.map(sel.head))) } catch { /* ignore */ }
           tr.setMeta(typewisePluginKey, { type: "apply-suggestion", id: corr.id })
           editor.view.dispatch(tr)
         } else {
@@ -252,9 +261,12 @@ export function CorrectionPopup({ editor }: CorrectionPopupProps) {
       }
 
       // accept / revert / suggestion → replace text + remove correction
+      const sel = editor.state.selection
       const { tr } = editor.state
       tr.insertText(item.value, corr.from, corr.to)
+      try { tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(sel.anchor), tr.mapping.map(sel.head))) } catch { /* ignore */ }
       tr.setMeta(typewisePluginKey, { type: "apply-suggestion", id: corr.id })
+      console.debug("[Typewise] popup correction:", { action: item.action, value: item.value, at: [corr.from, corr.to], cursor: sel.anchor, restoredCursor: tr.selection.anchor })
       editor.view.dispatch(tr)
       editor.view.focus()
     },
@@ -311,57 +323,53 @@ export function CorrectionPopup({ editor }: CorrectionPopupProps) {
   if (!activeCorrection || !position || menuItems.length === 0) return null
 
   return createPortal(
-    <div
+    <Card
       ref={popupRef}
-      className="correction-popup"
-      style={{ top: position.top, left: position.left }}
+      style={{
+        position: "fixed",
+        top: position.top,
+        left: position.left,
+        zIndex: 9999,
+        minWidth: "15rem",
+        maxWidth: "17.5rem",
+        alignItems: "stretch",
+        animation: "popover 150ms ease-out",
+      }}
       onMouseDown={(e) => {
         // Stop propagation so the document-level click-outside handler
         // doesn't close the popup before onClick fires on buttons
         e.stopPropagation()
       }}
     >
-      <div className="correction-popup-items">
-        {menuItems.map((item, i) => {
-          if (isDivider(item)) {
-            return <div key={`div-${i}`} className="correction-popup-divider" />
-          }
+      <CardBody>
+        <ButtonGroup>
+          {menuItems.map((item, i) => {
+            if (isDivider(item)) {
+              return <Separator key={`div-${i}`} orientation="horizontal" />
+            }
 
-          return (
-            <button
-              key={`${item.value}-${item.action}-${i}`}
-              className={`correction-popup-item${item.isHighlighted ? " is-highlighted" : ""}`}
-              onMouseDown={(e) => {
-                // Prevent editor focus loss so the click completes reliably
-                e.preventDefault()
-              }}
-              onClick={() => applyItem(item)}
-            >
-              {item.icon && (
-                <span className="correction-popup-item-icon">{item.icon}</span>
-              )}
-              <span className="correction-popup-item-content">
-                {item.title && (
-                  <span className="correction-popup-item-title">{item.title}</span>
-                )}
-                <span className="correction-popup-item-label">{item.label}</span>
-              </span>
-              {item.shortcut != null && (
-                <span className="correction-popup-item-shortcut">{item.shortcut}</span>
-              )}
-              {item.isHighlighted && (
-                <span className="correction-popup-item-enter"><IconReturn /></span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-      <div className="correction-popup-footer">
-        <span className="correction-popup-footer-hint">
-          <kbd>Esc</kbd> Close
-        </span>
-      </div>
-    </div>,
+            return (
+              <React.Fragment key={`${item.value}-${item.action}-${i}`}>
+                {item.title && <Label>{item.title}</Label>}
+                <Button
+                  data-style="ghost"
+                  onMouseDown={(e) => {
+                    // Prevent editor focus loss so the click completes reliably
+                    e.preventDefault()
+                  }}
+                  onClick={() => applyItem(item)}
+                >
+                  {item.icon}
+                  <span className="tiptap-button-text">{item.label}</span>
+                  {item.shortcut != null && <Badge>{item.shortcut}</Badge>}
+                  {item.isHighlighted && <Badge><IconReturn className="tiptap-badge-icon" /></Badge>}
+                </Button>
+              </React.Fragment>
+            )
+          })}
+        </ButtonGroup>
+      </CardBody>
+    </Card>,
     document.body
   )
 }

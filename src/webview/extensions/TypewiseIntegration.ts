@@ -15,7 +15,7 @@
  */
 
 import { Extension } from "@tiptap/core"
-import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state"
+import { Plugin, PluginKey, type EditorState, type Transaction, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
 
 // ─── Public types (shared with CorrectionPopup) ─────────────────────────────
@@ -136,6 +136,23 @@ function getInsertedText(tr: Transaction): string | null {
     }
   })
   return insertedText || null
+}
+
+/**
+ * Restore the user's cursor after tr.insertText(text, from, to).
+ *
+ * ProseMirror's insertText unconditionally moves the cursor to the end of
+ * the replacement (via selectionToInsertionEnd). For background corrections
+ * we want the cursor to stay where the user left it, so we map the original
+ * selection through the replacement mapping and re-apply it.
+ */
+function restoreSelection(tr: Transaction, originalState: EditorState): void {
+  const { anchor, head } = originalState.selection
+  const mappedAnchor = tr.mapping.map(anchor)
+  const mappedHead = tr.mapping.map(head)
+  try {
+    tr.setSelection(TextSelection.create(tr.doc, mappedAnchor, mappedHead))
+  } catch { /* mapped positions may be invalid — keep insertText's default */ }
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -296,9 +313,11 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
           const { tr } = curState
           tr.insertText(replacementWord, wordFrom, wordTo)
+          restoreSelection(tr, curState)
           tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
           tr.setMeta("addToHistory", false)
           suppressHoverUntilMove = true
+          console.debug("[Typewise] auto-correction:", { original: originalWord, replacement: replacementWord, at: [wordFrom, wordTo], cursor: curState.selection.anchor, restoredCursor: tr.selection.anchor })
           view.dispatch(tr)
         } else if (
           data.correctionType === "manual" &&
@@ -460,9 +479,11 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
             const { tr } = view.state
             tr.insertText(replacementWord, wordFrom, wordTo)
+            restoreSelection(tr, view.state)
             tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
             tr.setMeta("addToHistory", false)
             suppressHoverUntilMove = true
+            console.debug("[Typewise] grammar auto-correction:", { original: originalWord, replacement: replacementWord, at: [wordFrom, wordTo], cursor: view.state.selection.anchor, restoredCursor: tr.selection.anchor })
             view.dispatch(tr)
           } else if (correctionType === "manual") {
             const correction: CorrectionEntry = {
