@@ -1,6 +1,16 @@
-# Marksense
+<p align="center">
+  <img src="icon.png" alt="Marksense" width="128" />
+</p>
 
-A VS Code / Cursor extension that lets you view and edit Markdown files in a rich, Notion-like editor powered by [Tiptap](https://tiptap.dev).
+<h1 align="center">Marksense</h1>
+
+<p align="center">
+  A VS Code / Cursor extension that lets you view and edit Markdown files in a rich, Notion-like editor powered by <a href="https://tiptap.dev">Tiptap</a>.
+</p>
+
+<p align="center">
+  <img src="screenshot.png" alt="Marksense editor screenshot" width="800" />
+</p>
 
 ## Features
 
