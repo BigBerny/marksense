@@ -2,7 +2,7 @@
   "name": "marksense",
   "displayName": "Marksense",
   "description": "A beautiful Notion-like Markdown editor for VS Code, powered by Tiptap — with AI assistance, slash commands, and rich formatting",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "janisberneker",
   "license": "MIT",
   "repository": {
@@ -14,6 +14,8 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
+    "Formatters",
     "Other"
   ],
   "keywords": [
@@ -22,7 +24,13 @@
     "notion",
     "tiptap",
     "rich text",
-    "wysiwyg"
+    "wysiwyg",
+    "autocorrect",
+    "grammar",
+    "spellcheck",
+    "frontmatter",
+    "drag and drop",
+    "slash commands"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
@@ -42,20 +50,63 @@
         "priority": "option"
       }
     ],
+    "walkthroughs": [
+      {
+        "id": "marksense.gettingStarted",
+        "title": "Getting Started with Marksense",
+        "description": "Learn how to edit Markdown files in a rich, Notion-like editor.",
+        "steps": [
+          {
+            "id": "openFile",
+            "title": "Open a Markdown File",
+            "description": "Open any ``.md`` file in your workspace to get started.",
+            "media": {
+              "markdown": "Open a ``.md`` file from the Explorer sidebar or via **File → Open File**."
+            }
+          },
+          {
+            "id": "enableEditor",
+            "title": "Enable Marksense Editor",
+            "description": "Right-click the editor tab and choose **Reopen Editor With… → Marksense Editor**.\n\n[Open a Markdown file](command:workbench.action.quickOpen?%5B%22*.md%22%5D)",
+            "media": {
+              "markdown": "Right-click the editor tab → **Reopen Editor With…** → **Marksense Editor**."
+            }
+          },
+          {
+            "id": "setDefault",
+            "title": "Make Marksense the Default Editor",
+            "description": "To always open ``.md`` files with Marksense, add this to your settings:\n```json\n\"workbench.editorAssociations\": {\n  \"*.md\": \"marksense.editor\"\n}\n```\n\n[Open Settings (JSON)](command:workbench.action.openSettingsJson)",
+            "media": {
+              "markdown": "Right-click the tab → **Reopen Editor With…** → **Marksense Editor** → click **Configure default editor for '*.md'…** at the bottom of the picker."
+            }
+          },
+          {
+            "id": "configureTypewise",
+            "title": "Enable AI Features (Optional)",
+            "description": "For autocorrect, grammar correction, and sentence completion, add a [Typewise](https://www.typewise.app) API token.\n\nContact [apikey@typewise.app](mailto:apikey@typewise.app) to get a key, then paste it in settings.\n\n[Open Marksense Settings](command:workbench.action.openSettings?%5B%22marksense%22%5D)",
+            "media": {
+              "markdown": "Without a token the extension works as a pure offline editor — no data leaves your machine."
+            }
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "Marksense",
       "properties": {
         "marksense.typewiseToken": {
           "type": "string",
           "default": "",
-          "description": "Typewise API token for autocorrect, grammar correction, and sentence completion"
+          "description": "Typewise API token for autocorrect, grammar correction, and sentence completion. Contact apikey@typewise.app to get a key.",
+          "markdownDescription": "API token for [Typewise](https://www.typewise.app) autocorrect, grammar correction, and sentence completion. Without a token these features are disabled and the extension works as a pure offline editor. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app)."
         },
         "marksense.autoSaveDelay": {
           "type": "number",
           "default": 300,
           "minimum": 100,
           "maximum": 5000,
-          "description": "Debounce delay in milliseconds before syncing edits to the file"
+          "description": "Debounce delay in milliseconds before syncing edits to the file",
+          "markdownDescription": "Debounce delay in **milliseconds** before syncing edits to the file. Every edit auto-saves after this delay. Range: `100`–`5000` ms."
         }
       }
     }
@@ -64,7 +115,8 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
-    "vscode:prepublish": "node esbuild.mjs"
+    "vscode:prepublish": "node esbuild.mjs",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.17",

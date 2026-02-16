@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2 — 2026-02-16
+
+### Improved
+
+- Added Getting Started walkthrough to guide new users through opening files, enabling the editor, setting defaults, and configuring Typewise
+- Added marketplace categories (Visualization, Formatters) and additional keywords for better discoverability
+- Enhanced VS Code setting descriptions with rich Markdown formatting
+- Added API key contact info for Typewise setup
+
+### Fixed
+
+- Updated Typewise URLs from typewise.ai to typewise.app
+
 ## 1.0.1 — 2026-02-14
 
 ### Fixed
