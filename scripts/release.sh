@@ -41,7 +41,7 @@ if [ -z "$NOTES" ]; then
   USE_GENERATED_NOTES=true
 else
   # Trim leading/trailing blank lines
-  NOTES=$(echo "$NOTES" | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba;}')
+  NOTES=$(echo "$NOTES" | awk 'NF {found=1} found' | awk '{lines[NR]=$0} END {for(i=NR;i>=1;i--) if(lines[i]!=""){last=i;break} for(i=1;i<=last;i++) print lines[i]}')
   USE_GENERATED_NOTES=false
 fi
 
