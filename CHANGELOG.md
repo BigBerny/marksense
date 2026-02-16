@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 — 2026-02-16
+
+### Improved
+
+- Update documentation to include new Typewise configuration settings
+
+### Fixed
+
+- Fix release script compatibility on macOS by replacing GNU sed with awk
+
 ## 1.2.0 — 2026-02-16
 
 ### Added
