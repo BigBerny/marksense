@@ -107,6 +107,74 @@ export function serializeFrontmatter(
   return `---\n${yaml}\n---\n${separator}${body}`
 }
 
+// ─── Leading HTML block preservation ────────────────────────────────────────
+//
+// Many README-style markdown files open with raw HTML blocks (centered images,
+// badges, titles with `align="center"`, etc.) that Tiptap cannot round-trip
+// faithfully — HTML attributes like `align` and `width` are not understood by
+// the ProseMirror schema and get lost during parse → serialise.
+//
+// We strip those blocks so Tiptap never sees them, store the extracted prefix,
+// and splice it back on save via `restoreLeadingHtml`.
+
+/**
+ * Extract contiguous HTML blocks from the start of a markdown body.
+ *
+ * An "HTML block" is a group of consecutive non-blank lines whose first line
+ * begins with an HTML tag (`<tag`, `</tag`, or `<!`).  Blank lines between
+ * consecutive HTML blocks are included in the prefix.
+ *
+ * Returns `{ htmlPrefix, body }`.  `htmlPrefix` is `null` when the body does
+ * not start with HTML blocks.
+ */
+export function extractLeadingHtml(body: string): {
+  htmlPrefix: string | null
+  body: string
+} {
+  const lines = body.split("\n")
+  let i = 0
+  let lastHtmlBlockEnd = 0
+
+  while (i < lines.length) {
+    // Skip blank lines between HTML blocks
+    while (i < lines.length && lines[i].trim() === "") {
+      i++
+    }
+    if (i >= lines.length) break
+
+    // Check if this line starts an HTML block
+    if (/^<[a-zA-Z/!]/.test(lines[i].trim())) {
+      // Consume all lines until the next blank line or EOF
+      while (i < lines.length && lines[i].trim() !== "") {
+        i++
+      }
+      lastHtmlBlockEnd = i
+    } else {
+      break
+    }
+  }
+
+  if (lastHtmlBlockEnd === 0) {
+    return { htmlPrefix: null, body }
+  }
+
+  const htmlPrefix = lines.slice(0, lastHtmlBlockEnd).join("\n")
+  const remaining = lines.slice(lastHtmlBlockEnd).join("\n")
+
+  return { htmlPrefix, body: remaining }
+}
+
+/**
+ * Prepend a previously extracted HTML prefix back onto a markdown body.
+ */
+export function restoreLeadingHtml(
+  htmlPrefix: string | null,
+  body: string
+): string {
+  if (!htmlPrefix) return body
+  return htmlPrefix + "\n" + body
+}
+
 // ─── MDX JSX tag splitting ──────────────────────────────────────────────────
 //
 // Instead of wrapping entire JSX blocks, we split them into individual tag

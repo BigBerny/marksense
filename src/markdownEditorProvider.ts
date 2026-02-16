@@ -45,6 +45,22 @@ function readEnvFile(extensionPath: string): Record<string, string> {
 }
 
 /**
+ * Check whether the given file resides inside a git repository.
+ */
+function isInsideGitRepo(filePath: string): boolean {
+  try {
+    execSync("git rev-parse --show-toplevel", {
+      cwd: path.dirname(filePath),
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the content of a file at HEAD using `git show`.
  * Returns null if the file is untracked, the repo doesn't exist, etc.
  */
@@ -200,21 +216,28 @@ export class MarkdownEditorProvider
     const typewiseToken =
       config.get<string>("typewiseToken", "") || env["TYPEWISE_TOKEN"] || "";
     const autoSaveDelay = config.get<number>("autoSaveDelay", 300);
+    const isGitRepo = isInsideGitRepo(document.uri.fsPath);
 
     // Generate the webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { typewiseToken, autoSaveDelay, documentDirWebviewUri }
+      { typewiseToken, autoSaveDelay, documentDirWebviewUri, isGitRepo }
     );
 
     // --- Sync: webview → document model ---
 
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    // When true, incoming "edit" messages from the webview are ignored.
+    // This prevents stale debounced edits from overwriting an external change
+    // that was just synced into the editor.
+    let suppressEdits = false;
 
     const messageSubscription = webviewPanel.webview.onDidReceiveMessage(
       async (message: { type: string; [key: string]: unknown }) => {
         if (message.type === "edit" && typeof message.content === "string") {
+          if (suppressEdits) return;
+
           if (debounceTimer) clearTimeout(debounceTimer);
 
           debounceTimer = setTimeout(() => {
@@ -288,17 +311,38 @@ export class MarkdownEditorProvider
       }
     );
 
-    // --- Watch for external file changes (e.g. git checkout) ---
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(document.uri, "*")
-    );
-    const onExternalChange = async () => {
+    // --- Watch for external file changes ---
+    //
+    // Three complementary mechanisms ensure we catch external edits:
+    //
+    // 1. FileSystemWatcher — fires for OS-level changes (external terminal,
+    //    git checkout, etc.). Also handles some editors that delete + recreate
+    //    files (onDidCreate).
+    //
+    // 2. workspace.onDidSaveTextDocument — fires when Cursor's built-in
+    //    agents or other extensions edit & save the file through VS Code's
+    //    TextDocument API. The file watcher may not catch these because
+    //    VS Code can update its in-memory model before flushing to disk.
+    //
+    // 3. onDidChangeViewState — re-reads the file whenever the webview
+    //    panel gains focus, catching any changes that slipped through.
+
+    const syncFromDisk = async () => {
       try {
         const diskContent = await fs.promises.readFile(
           document.uri.fsPath,
           "utf-8"
         );
         if (diskContent !== document.content) {
+          // Cancel any pending debounced save so it doesn't overwrite
+          // the external change we're about to sync.
+          if (debounceTimer) clearTimeout(debounceTimer);
+          // Suppress incoming edits briefly — the webview may still have
+          // a debounced "edit" message in flight from before the external
+          // change was applied.
+          suppressEdits = true;
+          setTimeout(() => { suppressEdits = false; }, 500);
+
           document.revert(diskContent);
           webviewPanel.webview.postMessage({
             type: "update",
@@ -309,13 +353,37 @@ export class MarkdownEditorProvider
         // File may have been deleted
       }
     };
-    watcher.onDidChange(onExternalChange);
+
+    // (1) OS-level file watcher
+    const fileDir = vscode.Uri.joinPath(document.uri, "..");
+    const fileName = path.basename(document.uri.fsPath);
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(fileDir, fileName)
+    );
+    watcher.onDidChange(syncFromDisk);
+    watcher.onDidCreate(syncFromDisk);
+
+    // (2) VS Code TextDocument save events (e.g. Cursor agent edits)
+    const textDocSub = vscode.workspace.onDidSaveTextDocument((td) => {
+      if (td.uri.toString() === document.uri.toString()) {
+        syncFromDisk();
+      }
+    });
+
+    // (3) Re-read file when panel becomes visible / gains focus
+    const viewStateSub = webviewPanel.onDidChangeViewState(() => {
+      if (webviewPanel.visible) {
+        syncFromDisk();
+      }
+    });
 
     // Clean up on dispose
     webviewPanel.onDidDispose(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
       messageSubscription.dispose();
       watcher.dispose();
+      textDocSub.dispose();
+      viewStateSub.dispose();
       this.webviewPanels.delete(uriKey);
     });
   }
@@ -386,6 +454,7 @@ export class MarkdownEditorProvider
       typewiseToken: string;
       autoSaveDelay: number;
       documentDirWebviewUri: string;
+      isGitRepo: boolean;
     }
   ): string {
     const scriptUri = webview.asWebviewUri(

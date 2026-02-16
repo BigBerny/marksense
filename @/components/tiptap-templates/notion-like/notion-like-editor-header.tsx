@@ -59,7 +59,7 @@ export interface EditorActionsProps {
 }
 
 export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) {
-  const { isDiffMode, toggleDiffMode } = useDiff()
+  const { isDiffMode, isGitRepo, toggleDiffMode } = useDiff()
 
   return (
     <>
@@ -70,16 +70,18 @@ export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) 
 
       <Separator />
 
-      <Button
-        onClick={toggleDiffMode}
-        tooltip={rawMode ? "Show Changes (not available in raw mode)" : "Show Changes"}
-        data-style="ghost"
-        data-active-state={isDiffMode ? "on" : undefined}
-        aria-label="Toggle diff view"
-        disabled={rawMode}
-      >
-        <DiffToggleIcon />
-      </Button>
+      {isGitRepo && (
+        <Button
+          onClick={toggleDiffMode}
+          tooltip={rawMode ? "Show Changes (not available in raw mode)" : "Show Changes"}
+          data-style="ghost"
+          data-active-state={isDiffMode ? "on" : undefined}
+          aria-label="Toggle diff view"
+          disabled={rawMode}
+        >
+          <DiffToggleIcon />
+        </Button>
+      )}
 
       {onToggleRawMode && (
         <Button

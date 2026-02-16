@@ -6,6 +6,8 @@ interface DiffContextValue {
   isDiffMode: boolean
   /** The HEAD content received from git (null = not yet loaded or unavailable) */
   headContent: string | null
+  /** Whether the file is inside a git repository */
+  isGitRepo: boolean
   /** Toggle diff mode on/off */
   toggleDiffMode: () => void
   /** Set the HEAD content received from the extension host */
@@ -16,7 +18,7 @@ interface DiffContextValue {
 
 const DiffContext = createContext<DiffContextValue | null>(null)
 
-export function DiffProvider({ children }: { children: ReactNode }) {
+export function DiffProvider({ isGitRepo = false, children }: { isGitRepo?: boolean; children: ReactNode }) {
   const [isDiffMode, setIsDiffMode] = useState(false)
   const [headContent, setHeadContent] = useState<string | null>(null)
 
@@ -34,6 +36,7 @@ export function DiffProvider({ children }: { children: ReactNode }) {
       value={{
         isDiffMode,
         headContent,
+        isGitRepo,
         toggleDiffMode,
         setHeadContent,
         exitDiffMode,

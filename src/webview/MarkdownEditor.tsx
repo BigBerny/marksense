@@ -90,15 +90,18 @@ import { DiffProvider, useDiff } from "./DiffContext"
 import { DiffHighlight, diffHighlightKey } from "./extensions/DiffHighlightExtension"
 import "./components/DiffView.scss"
 
-// --- Frontmatter & MDX ---
+// --- Frontmatter, MDX & HTML block preservation ---
 import {
   parseFrontmatter,
   serializeFrontmatter,
+  extractLeadingHtml,
+  restoreLeadingHtml,
   wrapJsxComponents,
   unwrapJsxComponents,
   type FrontmatterEntry,
 } from "./frontmatterUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
+import { HtmlPrefixBanner } from "./components/HtmlPrefixBanner"
 import { MdxTag } from "./extensions/MdxTagExtension"
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
@@ -264,8 +267,10 @@ function LoadingSpinner({ text = "Loading editor..." }: { text?: string }) {
 // ─── Main Editor ─────────────────────────────────────────────────────────────
 
 export function MarkdownEditor() {
+  const isGitRepo = (window as any).__SETTINGS__?.isGitRepo ?? false
+
   return (
-    <DiffProvider>
+    <DiffProvider isGitRepo={isGitRepo}>
       <MarkdownEditorInner />
     </DiffProvider>
   )
@@ -281,9 +286,15 @@ function MarkdownEditorInner() {
   const [initialParsed] = useState(() => {
     const raw = window.__INITIAL_CONTENT__ || ""
     const parsed = parseFrontmatter(raw)
-    const wrapped = wrapJsxComponents(parsed.body)
+    // Strip leading HTML blocks (e.g. centred README headers) so Tiptap
+    // doesn't mangle attributes like `align` or `width` during round-trip.
+    const { htmlPrefix, body: bodyWithoutHtml } = extractLeadingHtml(
+      parsed.body
+    )
+    const wrapped = wrapJsxComponents(bodyWithoutHtml)
     return {
       ...parsed,
+      htmlPrefix,
       processedBody: resolveImageUrls(wrapped, documentDirWebviewUri),
     }
   })
@@ -299,6 +310,9 @@ function MarkdownEditorInner() {
   // Preserve the raw YAML so we can round-trip without changing quote style etc.
   // Set to null when the user edits frontmatter values (forces re-serialisation).
   const rawFrontmatterRef = useRef(initialParsed.rawFrontmatter)
+  // Preserve leading HTML blocks that Tiptap cannot faithfully round-trip.
+  const htmlPrefixRef = useRef(initialParsed.htmlPrefix)
+  const [htmlPrefix, setHtmlPrefix] = useState(initialParsed.htmlPrefix)
 
   const [rawMode, setRawMode] = useState(false)
   const [rawContent, setRawContent] = useState("")
@@ -425,11 +439,14 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = ed.getMarkdown()
-        // Restore JSX blocks, convert webview URIs to relative paths,
-        // and prepend frontmatter before syncing.
-        const restoredBody = unresolveImageUrls(
-          unwrapJsxComponents(md),
-          documentDirWebviewUri
+        // Restore JSX blocks, leading HTML blocks, convert webview URIs
+        // to relative paths, and prepend frontmatter before syncing.
+        const restoredBody = restoreLeadingHtml(
+          htmlPrefixRef.current,
+          unresolveImageUrls(
+            unwrapJsxComponents(md),
+            documentDirWebviewUri
+          )
         )
         const full = serializeFrontmatter(
           frontmatterRef.current,
@@ -556,8 +573,13 @@ function MarkdownEditorInner() {
           return
         }
 
+        const { htmlPrefix: newHtmlPrefix, body: bodyWithoutHtml } =
+          extractLeadingHtml(parsed.body)
+        htmlPrefixRef.current = newHtmlPrefix
+        setHtmlPrefix(newHtmlPrefix)
+
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(parsed.body),
+          wrapJsxComponents(bodyWithoutHtml),
           documentDirWebviewUri
         )
 
@@ -653,9 +675,12 @@ function MarkdownEditorInner() {
       // with relative image paths (not webview URIs).
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
-      const restoredBody = unresolveImageUrls(
-        unwrapJsxComponents(md),
-        documentDirWebviewUri
+      const restoredBody = restoreLeadingHtml(
+        htmlPrefixRef.current,
+        unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
       )
       const full = serializeFrontmatter(
         frontmatterRef.current,
@@ -665,11 +690,15 @@ function MarkdownEditorInner() {
       setRawContent(full)
       rawContentOriginal.current = full
     } else {
-      // Leaving raw mode: re-parse frontmatter + JSX and update editor
+      // Leaving raw mode: re-parse frontmatter + JSX + HTML prefix and update editor
       if (rawContent !== rawContentOriginal.current) {
         const parsed = parseFrontmatter(rawContent)
+        const { htmlPrefix: newHtmlPrefix, body: bodyWithoutHtml } =
+          extractLeadingHtml(parsed.body)
+        htmlPrefixRef.current = newHtmlPrefix
+        setHtmlPrefix(newHtmlPrefix)
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(parsed.body),
+          wrapJsxComponents(bodyWithoutHtml),
           documentDirWebviewUri
         )
         setFrontmatter(parsed.frontmatter)
@@ -703,9 +732,12 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
-        const restoredBody = unresolveImageUrls(
-          unwrapJsxComponents(md),
-          documentDirWebviewUri
+        const restoredBody = restoreLeadingHtml(
+          htmlPrefixRef.current,
+          unresolveImageUrls(
+            unwrapJsxComponents(md),
+            documentDirWebviewUri
+          )
         )
         const full = serializeFrontmatter(entries, restoredBody, null)
         setCurrentMarkdown(full)
@@ -754,6 +786,9 @@ function MarkdownEditorInner() {
           <>
             <div className="notion-like-editor-layout">
               <div className="notion-like-editor-content-column">
+                {/* Leading HTML blocks preserved from round-trip */}
+                <HtmlPrefixBanner htmlPrefix={htmlPrefix} />
+
                 {/* Frontmatter key-value panel (only if file has frontmatter) */}
                 {frontmatter && frontmatter.length > 0 && (
                   <FrontmatterPanel
