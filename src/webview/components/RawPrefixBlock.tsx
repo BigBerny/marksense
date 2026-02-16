@@ -1,15 +1,30 @@
+import { useCallback, useEffect, useRef } from "react"
 import "./RawPrefixBlock.scss"
 
 interface RawPrefixBlockProps {
   rawPrefix: string | null
+  onChange: (value: string) => void
 }
 
 /**
- * Non-editable block that shows content stripped from the top of the file
+ * Editable code block that shows content stripped from the top of the file
  * before Tiptap parses it (HTML blocks, MDX, or anything the editor can't
- * round-trip faithfully).  Always visible as a labelled code block.
+ * round-trip faithfully).  The user can edit the raw markup directly.
  */
-export function RawPrefixBlock({ rawPrefix }: RawPrefixBlockProps) {
+export function RawPrefixBlock({ rawPrefix, onChange }: RawPrefixBlockProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight}px`
+  }, [])
+
+  useEffect(() => {
+    autoResize()
+  }, [rawPrefix, autoResize])
+
   if (!rawPrefix) return null
 
   return (
@@ -27,7 +42,18 @@ export function RawPrefixBlock({ rawPrefix }: RawPrefixBlockProps) {
           <span className="raw-prefix-label">Raw Markdown</span>
         </div>
 
-        <pre className="raw-prefix-code">{rawPrefix}</pre>
+        <textarea
+          ref={textareaRef}
+          className="raw-prefix-code"
+          value={rawPrefix}
+          onChange={(e) => {
+            onChange(e.target.value)
+            autoResize()
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+        />
       </div>
     </div>
   )

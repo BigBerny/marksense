@@ -751,6 +751,41 @@ function MarkdownEditorInner() {
     [editor]
   )
 
+  // ── Raw prefix change handler ───────────────────────────────────────
+  const handleRawPrefixChange = useCallback(
+    (value: string) => {
+      const newPrefix = value || null
+      setRawPrefix(newPrefix)
+      rawPrefixRef.current = newPrefix
+
+      // Sync the full file content to VS Code
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      debounceTimer.current = setTimeout(() => {
+        // @ts-ignore — getMarkdown available via @tiptap/markdown
+        const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const restoredBody = restoreLeadingHtml(
+          newPrefix,
+          unresolveImageUrls(
+            unwrapJsxComponents(md),
+            documentDirWebviewUri
+          )
+        )
+        const full = serializeFrontmatter(
+          frontmatterRef.current,
+          restoredBody,
+          rawFrontmatterRef.current
+        )
+        setCurrentMarkdown(full)
+        sentToHostBufferRef.current.add(full)
+        if (sentToHostBufferRef.current.size > 10) {
+          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value)
+        }
+        vscode.postMessage({ type: "edit", content: full })
+      }, 150)
+    },
+    [editor]
+  )
+
   if (!editor) {
     return <LoadingSpinner />
   }
@@ -787,7 +822,7 @@ function MarkdownEditorInner() {
             <div className="notion-like-editor-layout">
               <div className="notion-like-editor-content-column">
                 {/* Raw blocks (HTML etc.) preserved from round-trip */}
-                <RawPrefixBlock rawPrefix={rawPrefix} />
+                <RawPrefixBlock rawPrefix={rawPrefix} onChange={handleRawPrefixChange} />
 
                 {/* Frontmatter key-value panel (only if file has frontmatter) */}
                 {frontmatter && frontmatter.length > 0 && (

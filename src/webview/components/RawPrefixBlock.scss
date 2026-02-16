@@ -61,8 +61,20 @@
   background: var(--tt-gray-light-50, rgba(0, 0, 0, 0.02));
   color: inherit;
   opacity: 0.6;
-  max-height: 200px;
-  overflow-y: auto;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  box-sizing: border-box;
+
+  &:focus {
+    opacity: 0.8;
+    border-color: var(--tt-gray-light-300, rgba(0, 0, 0, 0.15));
+
+    .dark & {
+      border-color: var(--tt-gray-dark-300, rgba(255, 255, 255, 0.15));
+    }
+  }
 
   .dark & {
     border-color: var(--tt-gray-dark-200, rgba(255, 255, 255, 0.08));
