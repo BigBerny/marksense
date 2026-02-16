@@ -4,7 +4,7 @@ Guidance for AI coding agents working on this repository.
 
 ## Project Overview
 
-Marksense is a VS Code / Cursor extension that provides a Notion-like rich-text editor for Markdown (`.md`) files. It uses [Tiptap](https://tiptap.dev) under the hood with a React webview, and optionally integrates [Typewise](https://www.typewise.ai) for autocorrect, grammar correction, and sentence completion. (MDX support code exists in the codebase but is currently disabled.)
+Marksense is a VS Code / Cursor extension that provides a Notion-like rich-text editor for Markdown (`.md`) files. It uses [Tiptap](https://tiptap.dev) under the hood with a React webview, and optionally integrates [Typewise](https://www.typewise.app) for autocorrect, grammar correction, and sentence completion. (MDX support code exists in the codebase but is currently disabled.)
 
 ## Directory Structure
 

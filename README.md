@@ -17,8 +17,8 @@
 - **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
 - **Markdown round-trip** — opens `.md` files, edits in rich text, saves back as clean Markdown.
 - **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
-- **Inline predictions** — sentence completion powered by [Typewise](https://www.typewise.ai) (optional, requires API token)
-- **Spellcheck & grammar** — autocorrect and grammar correction powered by [Typewise](https://www.typewise.ai)
+- **Inline predictions** — sentence completion powered by [Typewise](https://www.typewise.app) (optional, requires API token)
+- **Spellcheck & grammar** — autocorrect and grammar correction powered by [Typewise](https://www.typewise.app)
 - **Image upload** — drag & drop or click to upload images; files are saved to an `images/` folder next to the Markdown file and rendered inline
 - **Git diff viewer** — inline change highlighting against the last commit
 - **Frontmatter panel** — edit YAML frontmatter as key-value pairs
@@ -89,7 +89,7 @@ Open your **User** settings (`Ctrl+Shift+P` / `Cmd+Shift+P` → **Preferences: O
 
 ### Typewise AI setup (optional)
 
-Marksense can use [Typewise](https://www.typewise.ai) for autocorrect, grammar correction, and sentence completion. Without a token, these features are disabled and the extension works as a pure offline editor.
+Marksense can use [Typewise](https://www.typewise.app) for autocorrect, grammar correction, and sentence completion. Without a token, these features are disabled and the extension works as a pure offline editor. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app).
 
 **Option 1 — VS Code setting (recommended):**
 
