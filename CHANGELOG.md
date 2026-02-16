@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 — 2026-02-16
+
+### Added
+
+- Add default full-width setting for the editor
+- Add raw block handling to preserve and edit non-Markdown content (e.g. leading HTML) inline
+
+### Improved
+
+- Improve MarkdownEditor synchronization for raw prefix blocks
+
 ## 1.1.0 — 2026-02-16
 
 ### Added
