@@ -115,7 +115,8 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
-    "vscode:prepublish": "node esbuild.mjs"
+    "vscode:prepublish": "node esbuild.mjs",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.17",
