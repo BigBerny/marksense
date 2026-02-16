@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 — 2026-02-16
+
+### Added
+
+- Detect Git repository status — the diff toggle button now only appears when the file is inside a Git repo
+- Preserve leading HTML blocks in Markdown files during editor round-trips, with a visual banner showing the preserved content
+
+### Improved
+
+- Enhance file synchronization to better handle external changes and prevent stale edits
+
 ## 1.0.2 — 2026-02-16
 
 ### Improved

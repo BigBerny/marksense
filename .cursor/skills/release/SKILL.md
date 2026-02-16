@@ -95,7 +95,7 @@ Rules:
 
 ### Step 5: Commit the version bump
 
-Stage and commit only the version/changelog files:
+Stage and commit only the version/changelog files. Do **not** add a `Co-Authored-By` trailer to the commit message.
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md
