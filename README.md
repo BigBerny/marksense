@@ -85,6 +85,7 @@ Open your **User** settings (`Ctrl+Shift+P` / `Cmd+Shift+P` → **Preferences: O
 | Setting                      | Default | Description                                                     |
 | ---------------------------- | ------- | --------------------------------------------------------------- |
 | `marksense.autoSaveDelay`    | `300`   | Debounce delay (ms) before syncing edits to the file            |
+| `marksense.defaultFullWidth` | `false` | Open files in wide layout by default (togglable per file)       |
 | `marksense.typewiseToken`    | `""`    | Typewise API token for autocorrect, grammar, and predictions    |
 
 ### Typewise AI setup (optional)

@@ -92,5 +92,5 @@ Press **F5** in VS Code/Cursor to launch the Extension Development Host for test
 
 - TypeScript throughout; the webview uses React 19 + Tiptap 3.
 - Path alias `@/*` maps to the `@/` directory (Tiptap template components).
-- The extension reads settings from `marksense.*` VS Code configuration, with `.env` file as fallback for `TYPEWISE_TOKEN`.
+- The extension reads settings from `marksense.*` VS Code configuration, with `.env` file as fallback for `TYPEWISE_TOKEN`. Current settings: `typewiseToken`, `autoSaveDelay`, `defaultFullWidth`.
 - No external test framework currently; manual testing via Extension Development Host.
