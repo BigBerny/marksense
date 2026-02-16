@@ -29,7 +29,11 @@ function WidthToggleIcon({ className }: { className?: string }) {
 export function WidthToggle() {
   const [isWide, setIsWide] = useState(() => {
     const state = vscode.getState() as Record<string, unknown> | undefined
-    return state?.wideMode === true
+    // If the user has toggled width before, use that; otherwise fall back to the setting
+    if (state && typeof state.wideMode === "boolean") {
+      return state.wideMode
+    }
+    return (window as any).__SETTINGS__?.defaultFullWidth ?? false
   })
 
   useEffect(() => {

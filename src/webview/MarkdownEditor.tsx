@@ -101,7 +101,7 @@ import {
   type FrontmatterEntry,
 } from "./frontmatterUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
-import { HtmlPrefixBanner } from "./components/HtmlPrefixBanner"
+import { RawPrefixBlock } from "./components/RawPrefixBlock"
 import { MdxTag } from "./extensions/MdxTagExtension"
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
@@ -286,15 +286,15 @@ function MarkdownEditorInner() {
   const [initialParsed] = useState(() => {
     const raw = window.__INITIAL_CONTENT__ || ""
     const parsed = parseFrontmatter(raw)
-    // Strip leading HTML blocks (e.g. centred README headers) so Tiptap
-    // doesn't mangle attributes like `align` or `width` during round-trip.
-    const { htmlPrefix, body: bodyWithoutHtml } = extractLeadingHtml(
+    // Strip leading raw blocks (HTML, etc.) that Tiptap can't round-trip
+    // faithfully — attributes like `align` or `width` would be lost.
+    const { htmlPrefix: rawPrefix, body: strippedBody } = extractLeadingHtml(
       parsed.body
     )
-    const wrapped = wrapJsxComponents(bodyWithoutHtml)
+    const wrapped = wrapJsxComponents(strippedBody)
     return {
       ...parsed,
-      htmlPrefix,
+      rawPrefix,
       processedBody: resolveImageUrls(wrapped, documentDirWebviewUri),
     }
   })
@@ -310,9 +310,9 @@ function MarkdownEditorInner() {
   // Preserve the raw YAML so we can round-trip without changing quote style etc.
   // Set to null when the user edits frontmatter values (forces re-serialisation).
   const rawFrontmatterRef = useRef(initialParsed.rawFrontmatter)
-  // Preserve leading HTML blocks that Tiptap cannot faithfully round-trip.
-  const htmlPrefixRef = useRef(initialParsed.htmlPrefix)
-  const [htmlPrefix, setHtmlPrefix] = useState(initialParsed.htmlPrefix)
+  // Preserve leading raw blocks that Tiptap cannot faithfully round-trip.
+  const rawPrefixRef = useRef(initialParsed.rawPrefix)
+  const [rawPrefix, setRawPrefix] = useState(initialParsed.rawPrefix)
 
   const [rawMode, setRawMode] = useState(false)
   const [rawContent, setRawContent] = useState("")
@@ -442,7 +442,7 @@ function MarkdownEditorInner() {
         // Restore JSX blocks, leading HTML blocks, convert webview URIs
         // to relative paths, and prepend frontmatter before syncing.
         const restoredBody = restoreLeadingHtml(
-          htmlPrefixRef.current,
+          rawPrefixRef.current,
           unresolveImageUrls(
             unwrapJsxComponents(md),
             documentDirWebviewUri
@@ -573,13 +573,13 @@ function MarkdownEditorInner() {
           return
         }
 
-        const { htmlPrefix: newHtmlPrefix, body: bodyWithoutHtml } =
+        const { htmlPrefix: newRawPrefix, body: strippedBody } =
           extractLeadingHtml(parsed.body)
-        htmlPrefixRef.current = newHtmlPrefix
-        setHtmlPrefix(newHtmlPrefix)
+        rawPrefixRef.current = newRawPrefix
+        setRawPrefix(newRawPrefix)
 
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(bodyWithoutHtml),
+          wrapJsxComponents(strippedBody),
           documentDirWebviewUri
         )
 
@@ -676,7 +676,7 @@ function MarkdownEditorInner() {
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
       const restoredBody = restoreLeadingHtml(
-        htmlPrefixRef.current,
+        rawPrefixRef.current,
         unresolveImageUrls(
           unwrapJsxComponents(md),
           documentDirWebviewUri
@@ -693,12 +693,12 @@ function MarkdownEditorInner() {
       // Leaving raw mode: re-parse frontmatter + JSX + HTML prefix and update editor
       if (rawContent !== rawContentOriginal.current) {
         const parsed = parseFrontmatter(rawContent)
-        const { htmlPrefix: newHtmlPrefix, body: bodyWithoutHtml } =
+        const { htmlPrefix: newRawPrefix, body: strippedBody } =
           extractLeadingHtml(parsed.body)
-        htmlPrefixRef.current = newHtmlPrefix
-        setHtmlPrefix(newHtmlPrefix)
+        rawPrefixRef.current = newRawPrefix
+        setRawPrefix(newRawPrefix)
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(bodyWithoutHtml),
+          wrapJsxComponents(strippedBody),
           documentDirWebviewUri
         )
         setFrontmatter(parsed.frontmatter)
@@ -733,7 +733,7 @@ function MarkdownEditorInner() {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
         const restoredBody = restoreLeadingHtml(
-          htmlPrefixRef.current,
+          rawPrefixRef.current,
           unresolveImageUrls(
             unwrapJsxComponents(md),
             documentDirWebviewUri
@@ -786,8 +786,8 @@ function MarkdownEditorInner() {
           <>
             <div className="notion-like-editor-layout">
               <div className="notion-like-editor-content-column">
-                {/* Leading HTML blocks preserved from round-trip */}
-                <HtmlPrefixBanner htmlPrefix={htmlPrefix} />
+                {/* Raw blocks (HTML etc.) preserved from round-trip */}
+                <RawPrefixBlock rawPrefix={rawPrefix} />
 
                 {/* Frontmatter key-value panel (only if file has frontmatter) */}
                 {frontmatter && frontmatter.length > 0 && (

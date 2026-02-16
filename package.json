@@ -107,6 +107,12 @@
           "maximum": 5000,
           "description": "Debounce delay in milliseconds before syncing edits to the file",
           "markdownDescription": "Debounce delay in **milliseconds** before syncing edits to the file. Every edit auto-saves after this delay. Range: `100`–`5000` ms."
+        },
+        "marksense.defaultFullWidth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open files in wide layout by default. Can still be toggled per file using the width button in the toolbar.",
+          "markdownDescription": "Open files in **wide layout** by default. Can still be toggled per file using the width button in the toolbar."
         }
       }
     }

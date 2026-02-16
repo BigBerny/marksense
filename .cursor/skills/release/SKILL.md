@@ -95,7 +95,9 @@ Rules:
 
 ### Step 5: Commit the version bump
 
-Stage and commit only the version/changelog files. Do **not** add a `Co-Authored-By` trailer to the commit message.
+Stage and commit only the version/changelog files.
+
+> **Note:** Cursor IDE may automatically append a `Co-authored-by: Cursor` trailer to agent commits. To prevent this, disable the setting at **Cursor Settings → Agents → Attribution** before running the release.
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md

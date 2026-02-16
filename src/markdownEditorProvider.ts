@@ -216,13 +216,14 @@ export class MarkdownEditorProvider
     const typewiseToken =
       config.get<string>("typewiseToken", "") || env["TYPEWISE_TOKEN"] || "";
     const autoSaveDelay = config.get<number>("autoSaveDelay", 300);
+    const defaultFullWidth = config.get<boolean>("defaultFullWidth", false);
     const isGitRepo = isInsideGitRepo(document.uri.fsPath);
 
     // Generate the webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { typewiseToken, autoSaveDelay, documentDirWebviewUri, isGitRepo }
+      { typewiseToken, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo }
     );
 
     // --- Sync: webview → document model ---

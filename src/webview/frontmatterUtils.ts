@@ -127,6 +127,13 @@ export function serializeFrontmatter(
  * Returns `{ htmlPrefix, body }`.  `htmlPrefix` is `null` when the body does
  * not start with HTML blocks.
  */
+/**
+ * Returns true when a line (already trimmed) looks like markdown block-level
+ * syntax rather than HTML content.  Used to stop HTML block consumption early
+ * when there is no blank line between the HTML and the markdown that follows.
+ */
+const MD_BLOCK_RE = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s?|```|~~~|\|)/
+
 export function extractLeadingHtml(body: string): {
   htmlPrefix: string | null
   body: string
@@ -144,8 +151,12 @@ export function extractLeadingHtml(body: string): {
 
     // Check if this line starts an HTML block
     if (/^<[a-zA-Z/!]/.test(lines[i].trim())) {
-      // Consume all lines until the next blank line or EOF
+      // Consume lines that belong to this HTML block.  Stop at a blank line
+      // OR at a line that looks like markdown block-level content (handles
+      // files where there is no blank line between </tag> and ## Heading).
       while (i < lines.length && lines[i].trim() !== "") {
+        const t = lines[i].trim()
+        if (!/^<[a-zA-Z/!]/.test(t) && MD_BLOCK_RE.test(t)) break
         i++
       }
       lastHtmlBlockEnd = i
