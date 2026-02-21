@@ -107,6 +107,37 @@ TYPEWISE_TOKEN=your-typewise-api-token
 
 The VS Code setting takes priority over the `.env` file.
 
+### Table column types (TableConfig)
+
+You can define typed columns for any Markdown table by placing a `<TableConfig>` tag directly above it. Configured columns get interactive controls — dropdowns, checkboxes, or multi-select chips — instead of plain text editing.
+
+```markdown
+<TableConfig
+  status={["Todo", "In Progress", "Done"]}
+  priority={{ options: ["High", "Medium", "Low"], nullable: true }}
+  tags={{ multi: ["bug", "feature", "docs"] }}
+  done="boolean"
+/>
+
+| Task        | status | priority | tags        | done  |
+| ----------- | ------ | -------- | ----------- | ----- |
+| Fix login   | Done   | High     | bug         | true  |
+| Add search  | Todo   | Medium   | feature     | false |
+```
+
+#### Column types
+
+| Type | Syntax | Description |
+| --- | --- | --- |
+| **Single select** | `col={["A", "B", "C"]}` | Dropdown with predefined options |
+| **Single select (nullable)** | `col={{ options: ["A", "B"], nullable: true }}` | Same as above, with a "Clear" action |
+| **Multi-select** | `col={{ multi: ["A", "B", "C"] }}` | Checkbox menu; values stored comma-separated |
+| **Multi-select (nullable)** | `col={{ options: ["A", "B"], multi: true, nullable: true }}` | Same as above, with a "Clear all" action |
+| **Boolean** | `col="boolean"` | Toggleable checkbox (`true` / `false`) |
+| **Boolean (nullable)** | `col={{ type: "boolean", nullable: true }}` | Cycles through empty → `true` → `false` |
+
+The `<TableConfig>` tag is stored in the Markdown file and preserved across saves.
+
 ## License
 
 MIT

@@ -44,6 +44,9 @@
             "filenamePattern": "*.md"
           },
           {
+            "filenamePattern": "*.mdx"
+          },
+          {
             "filenamePattern": "*.markdown"
           }
         ],
