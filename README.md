@@ -23,6 +23,7 @@
 - **Git diff viewer** — inline change highlighting against the last commit
 - **Frontmatter panel** — edit YAML frontmatter as key-value pairs
 - **Dark / light mode** — follows your VS Code theme
+- **Table checkboxes** — use `[ ]` / `[x]` inside table cells for interactive, toggleable checkboxes
 - **Emoji, mentions, tables, task lists, code blocks, math, and more**
 
 ## Installation

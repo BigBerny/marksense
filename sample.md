@@ -63,14 +63,14 @@ Tables are fully resizable — drag column borders to adjust widths.
 
 | Feature            | Status |
 | ------------------ | ------ |
-| Rich text editing  | Done   |
-| Markdown sync      | Done   |
-| Image upload       | Done   |
-| Table of Contents  | Done   |
-| Frontmatter panel  | Done   |
-| Diff view          | Done   |
-| Math (LaTeX)       | Done   |
-| Typewise AI        | Opt-in |
+| Rich text editing  | [x]    |
+| Markdown sync      | [x]    |
+| Image upload       | [x]    |
+| Table of Contents  | [x]    |
+| Frontmatter panel  | [x]    |
+| Diff view          | [x]    |
+| Math (LaTeX)       | [x]    |
+| Typewise AI        | [ ]    |
 
 ## Mathematics
 

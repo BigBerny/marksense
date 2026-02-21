@@ -103,6 +103,7 @@ import {
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
 import { RawPrefixBlock } from "./components/RawPrefixBlock"
 import { MdxTag } from "./extensions/MdxTagExtension"
+import { TableCheckbox } from "./extensions/TableCheckboxExtension"
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
 
@@ -381,6 +382,7 @@ function MarkdownEditorInner() {
       Color,
       TaskList,
       TaskItem.configure({ nested: true }),
+      TableCheckbox,
       Highlight.configure({ multicolor: true }),
       Selection,
       Image,
