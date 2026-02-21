@@ -37,9 +37,10 @@ function SourceViewIcon({ className }: { className?: string }) {
 }
 
 /** Git-diff style icon: file with +/- indicators */
-function DiffToggleIcon() {
+function DiffToggleIcon({ className }: { className?: string }) {
   return (
     <svg
+      className={className}
       xmlns="http://www.w3.org/2000/svg"
       width="16"
       height="16"
@@ -79,7 +80,7 @@ export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) 
           aria-label="Toggle diff view"
           disabled={rawMode}
         >
-          <DiffToggleIcon />
+          <DiffToggleIcon className="tiptap-button-icon" />
         </Button>
       )}
 
@@ -90,8 +91,7 @@ export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) 
           aria-label={rawMode ? "Switch to rich editor" : "View raw markdown"}
           tooltip={rawMode ? "Switch to rich editor" : "View raw markdown"}
           onClick={onToggleRawMode}
-          data-active={rawMode ? "" : undefined}
-          className={rawMode ? "raw-mode-active" : ""}
+          data-active-state={rawMode ? "on" : undefined}
         >
           <SourceViewIcon className="tiptap-button-icon" />
         </Button>

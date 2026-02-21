@@ -104,6 +104,9 @@ import { FrontmatterPanel } from "./components/FrontmatterPanel"
 import { RawPrefixBlock } from "./components/RawPrefixBlock"
 import { MdxTag } from "./extensions/MdxTagExtension"
 import { TableCheckbox } from "./extensions/TableCheckboxExtension"
+import { TableConfig } from "./extensions/TableConfigExtension"
+import { TableConfigCellPopover } from "./components/TableConfigCellPopover"
+import "./extensions/tableConfig.scss"
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
 
@@ -421,6 +424,8 @@ function MarkdownEditorInner() {
       DiffHighlight,
       // --- MDX tag atoms (non-editable JSX tag chips) ---
       MdxTag,
+      // --- TableConfig atoms (column type definitions for tables) ---
+      TableConfig,
       // --- Typewise: autocorrection + inline predictions ---
       TypewiseIntegration.configure({
         apiToken: typewiseToken,
@@ -854,6 +859,7 @@ function MarkdownEditorInner() {
         )}
       </EditorContext.Provider>
       {!rawMode && <CorrectionPopup editor={editor} />}
+      {!rawMode && <TableConfigCellPopover editor={editor} />}
     </div>
   )
 }

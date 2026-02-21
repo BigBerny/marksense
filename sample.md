@@ -72,6 +72,24 @@ Tables are fully resizable — drag column borders to adjust widths.
 | Math (LaTeX)       | [x]    |
 | Typewise AI        | [ ]    |
 
+### Table with Column Types
+
+Use `<TableConfig>` to add dropdowns, multi-select, and checkboxes to table columns. The table body stays pure Markdown — no special syntax in cells.
+
+<TableConfig
+  status={["Todo", "In Progress", "Done"]}
+  priority={{ options: ["High", "Medium", "Low"], nullable: true }}
+  tags={{ multi: ["bug", "feature", "docs", "design"] }}
+  done="boolean"
+/>
+
+| Task                  | Status      | Priority | Tags              | Done  |
+| --------------------- | ----------- | -------- | ----------------- | ----- |
+| Fix login redirect    | In Progress | High     | bug               | false |
+| Add dark mode toggle  | Todo        | Medium   | feature, design   | false |
+| Update README         | Done        | Low      | docs              | true  |
+| Refactor auth module  | In Progress |          | feature, bug      | false |
+
 ## Mathematics
 
 Inline math: $E = mc^2$

@@ -1,0 +1,39 @@
+/* =====================
+     TABLE CONFIG CHIP
+     ===================== */
+
+.table-config-block {
+  margin: 2px 0;
+  user-select: none;
+}
+
+.table-config-code {
+  display: inline-block;
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo",
+    "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--tt-blue-50, rgba(59, 130, 246, 0.06));
+  color: var(--tt-blue-600, #2563eb);
+  border: 1px solid var(--tt-blue-200, rgba(59, 130, 246, 0.2));
+  white-space: pre;
+
+  .dark & {
+    background: var(--tt-blue-900, rgba(59, 130, 246, 0.1));
+    color: var(--tt-blue-400, #60a5fa);
+    border-color: var(--tt-blue-800, rgba(59, 130, 246, 0.2));
+  }
+}
+
+.table-config-icon {
+  margin-right: 4px;
+  opacity: 0.7;
+}
+
+/* Selected state */
+.table-config-block.ProseMirror-selectednode .table-config-code {
+  outline: 2px solid var(--tt-blue-500, #3b82f6);
+  outline-offset: 1px;
+}

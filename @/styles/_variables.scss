@@ -381,13 +381,4 @@
   background: var(--tt-bg-color, #0e0e11);
 }
 
-/* Active state for the raw mode toggle button */
-.raw-mode-active {
-  background: var(--tt-gray-light-a-100, rgba(15, 22, 36, 0.05)) !important;
-  color: var(--tt-brand-color-500, #6229ff) !important;
-}
 
-.dark .raw-mode-active {
-  background: var(--tt-gray-dark-a-200, rgba(238, 238, 246, 0.11)) !important;
-  color: var(--tt-brand-color-400, #7a52ff) !important;
-}

@@ -30,6 +30,7 @@
 import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey, type EditorState, type Transaction, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
+import { isInConfiguredTable } from "./TableConfigPlugin"
 
 // ─── Public types (shared with CorrectionPopup) ─────────────────────────────
 
@@ -285,6 +286,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     async function checkFinalWord(sentenceText: string, blockStart: number) {
       if (!opts.autocorrect || !opts.apiToken) return
+      if (isInConfiguredTable(tiptapEditor.state)) return
 
       // Abort any in-flight correction request
       if (correctionAbort) correctionAbort.abort()
@@ -459,6 +461,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     async function checkGrammar(sentenceText: string, sentenceFrom: number, fullText: string) {
       if (!opts.autocorrect || !opts.apiToken) return
+      if (isInConfiguredTable(tiptapEditor.state)) return
 
       if (grammarAbort) grammarAbort.abort()
       grammarAbort = new AbortController()
@@ -625,6 +628,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     function schedulePrediction(view: EditorView) {
       if (predictionTimer) clearTimeout(predictionTimer)
+      if (isInConfiguredTable(view.state)) return
       predictionTimer = setTimeout(() => {
         const { text } = getTextBeforeCursor(view.state)
         const cursorPos = view.state.selection.$from.pos
