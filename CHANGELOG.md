@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — 2026-02-21
+
+### Added
+
+- Add interactive table checkboxes — use `[ ]` / `[x]` inside table cells for toggleable checkboxes that round-trip to Markdown
+
 ## 1.2.1 — 2026-02-16
 
 ### Improved
