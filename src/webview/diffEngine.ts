@@ -38,7 +38,10 @@ export function parseBlocks(markdown: string): Block[] {
       if (!trimmed) return null
       return {
         text: trimmed,
-        key: trimmed.replace(/\s+/g, " ").toLowerCase(),
+        // Collapse whitespace, normalize table separator dashes (e.g.
+        // `------------------` → `---`) so tables match regardless of
+        // original column-width padding, and lowercase for comparison.
+        key: trimmed.replace(/\s+/g, " ").replace(/-{3,}/g, "---").toLowerCase(),
       }
     })
     .filter((b): b is Block => b !== null)

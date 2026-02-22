@@ -31,7 +31,8 @@ export const tableConfigPluginKey = new PluginKey("tableConfigPlugin")
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Walk the document's top-level nodes and find `tableConfig` → `table` pairs.
+ * Walk the document's top-level nodes and find `rawText` → `table` pairs
+ * where the rawText node contains a TableConfig tag.
  */
 function buildConfigMapping(doc: PmNode): ConfigMapping {
   const configByTablePos = new Map<number, ParsedTableConfig>()
@@ -40,9 +41,11 @@ function buildConfigMapping(doc: PmNode): ConfigMapping {
   let pendingConfig: ParsedTableConfig | null = null
 
   doc.forEach((node, offset) => {
-    if (node.type.name === "tableConfig") {
+    if (node.type.name === "rawText") {
       try {
-        pendingConfig = JSON.parse(node.attrs.config || "{}")
+        const parsed = JSON.parse(node.attrs.config || "{}")
+        // Only set pendingConfig if this raw text node has TableConfig data
+        pendingConfig = Object.keys(parsed).length > 0 ? parsed : null
       } catch {
         pendingConfig = null
       }

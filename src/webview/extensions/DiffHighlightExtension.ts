@@ -367,11 +367,26 @@ function serializeDocToMarkdown(
 
 // ─── Extension ─────────────────────────────────────────────────────────────
 
-export const DiffHighlight = Extension.create({
+export interface DiffHighlightOptions {
+  /**
+   * Optional function to normalize Tiptap-serialized markdown before diffing.
+   * Used to convert internal representations (e.g. raw-text div wrappers,
+   * resolved image URLs) back to their original form so the diff matches
+   * the HEAD content format.
+   */
+  normalizeMarkdown?: (md: string) => string
+}
+
+export const DiffHighlight = Extension.create<DiffHighlightOptions>({
   name: "diffHighlight",
+
+  addOptions() {
+    return {}
+  },
 
   addProseMirrorPlugins() {
     const editor = this.editor
+    const normalize = this.options.normalizeMarkdown ?? ((md: string) => md)
 
     return [
       new Plugin({
@@ -429,10 +444,11 @@ export const DiffHighlight = Extension.create({
 
             // Auto-refresh on document change
             if (value.active && value.headContent && tr.docChanged) {
-              const currentMarkdown = serializeDocToMarkdown(
+              const rawMarkdown = serializeDocToMarkdown(
                 editor,
                 newState.doc
               )
+              const currentMarkdown = normalize(rawMarkdown)
               const diffResults = diffMarkdown(
                 value.headContent,
                 currentMarkdown

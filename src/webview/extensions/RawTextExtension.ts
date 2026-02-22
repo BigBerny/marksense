@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core"
 import { ReactNodeViewRenderer } from "@tiptap/react"
-import { TableConfigBlock } from "../components/TableConfigBlock"
+import { RawTextBlock } from "../components/RawTextBlock"
 import { parseTableConfigTag } from "./tableConfigUtils"
 import { createTableConfigPlugin } from "./TableConfigPlugin"
 
@@ -17,17 +17,24 @@ function htmlDecode(str: string): string {
     .replace(/&amp;/g, "&")
 }
 
+declare module "@tiptap/core" {
+  interface Commands<ReturnType> {
+    rawText: {
+      insertRawText: () => ReturnType
+    }
+  }
+}
+
 /**
- * TableConfig — a non-editable atom node representing a `<TableConfig ... />`
- * MDX tag.  It defines column types (select, multiselect, boolean) for the
- * immediately following table.
+ * RawText — an editable atom node that represents a single JSX tag line
+ * (opening, closing, or self-closing) in an MDX file, or a multi-line
+ * `<TableConfig ... />` tag.
  *
- * The raw JSX tag string is stored in the `tag` attribute for round-trip
- * fidelity.  The parsed config is stored as a JSON string in the `config`
- * attribute for efficient runtime access.
+ * Rendered as an editable textarea block with a "Raw text" header.
+ * The content between JSX tags is regular markdown handled by Tiptap as usual.
  */
-export const TableConfig = Node.create({
-  name: "tableConfig",
+export const RawText = Node.create({
+  name: "rawText",
 
   group: "block",
 
@@ -52,8 +59,11 @@ export const TableConfig = Node.create({
         parseHTML: (element: HTMLElement) => {
           const encoded = element.getAttribute("data-tag") || ""
           const decoded = htmlDecode(encoded)
-          const config = parseTableConfigTag(decoded)
-          return JSON.stringify(config)
+          if (decoded.trimStart().startsWith("<TableConfig")) {
+            const config = parseTableConfigTag(decoded)
+            return JSON.stringify(config)
+          }
+          return "{}"
         },
         renderHTML: () => ({}), // Not rendered in HTML — derived from tag
       },
@@ -61,18 +71,31 @@ export const TableConfig = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'div[data-type="table-config"]' }]
+    return [{ tag: 'div[data-type="raw-text"]' }]
   },
 
   renderHTML({ HTMLAttributes }) {
     return [
       "div",
-      mergeAttributes({ "data-type": "table-config" }, HTMLAttributes),
+      mergeAttributes({ "data-type": "raw-text" }, HTMLAttributes),
     ]
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(TableConfigBlock)
+    return ReactNodeViewRenderer(RawTextBlock)
+  },
+
+  addCommands() {
+    return {
+      insertRawText:
+        () =>
+        ({ commands }) => {
+          return commands.insertContent({
+            type: this.name,
+            attrs: { tag: "", config: "{}" },
+          })
+        },
+    }
   },
 
   renderMarkdown(node: any) {
@@ -84,7 +107,7 @@ export const TableConfig = Node.create({
       .replace(/>/g, "&gt;")
       .replace(/\n/g, "&#10;")
       .replace(/\r/g, "&#13;")
-    return `<div data-type="table-config" data-tag="${encoded}"></div>\n\n`
+    return `<div data-type="raw-text" data-tag="${encoded}"></div>\n\n`
   },
 
   addProseMirrorPlugins() {

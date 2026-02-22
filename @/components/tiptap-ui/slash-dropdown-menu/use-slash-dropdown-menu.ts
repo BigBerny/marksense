@@ -20,6 +20,7 @@ import { AtSignIcon } from "@/components/tiptap-icons/at-sign-icon"
 import { SmilePlusIcon } from "@/components/tiptap-icons/smile-plus-icon"
 import { TableIcon } from "@/components/tiptap-icons/table-icon"
 import { ListIndentedIcon } from "@/components/tiptap-icons/list-indented-icon"
+import { RawTextIcon } from "@/components/tiptap-icons/raw-text-icon"
 
 // --- Lib ---
 import {
@@ -108,6 +109,13 @@ const texts = {
   },
 
   // Insert
+  raw_text: {
+    title: "Raw Text",
+    subtext: "Unformatted raw text block",
+    keywords: ["raw", "rawtext", "html", "jsx", "mdx"],
+    badge: RawTextIcon,
+    group: "Insert",
+  },
   mention: {
     title: "Mention",
     subtext: "Mention a user or item",
@@ -223,6 +231,12 @@ const getItemImplementations = () => {
     },
 
     // Insert
+    raw_text: {
+      check: (editor: Editor) => isNodeInSchema("rawText", editor),
+      action: ({ editor }: { editor: Editor }) => {
+        editor.chain().focus().insertRawText().run()
+      },
+    },
     mention: {
       check: (editor: Editor) =>
         isExtensionAvailable(editor, ["mention", "mentionAdvanced"]),

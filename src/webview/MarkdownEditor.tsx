@@ -102,9 +102,8 @@ import {
 } from "./frontmatterUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
 import { RawPrefixBlock } from "./components/RawPrefixBlock"
-import { MdxTag } from "./extensions/MdxTagExtension"
+import { RawText } from "./extensions/RawTextExtension"
 import { TableCheckbox } from "./extensions/TableCheckboxExtension"
-import { TableConfig } from "./extensions/TableConfigExtension"
 import { TableConfigCellPopover } from "./components/TableConfigCellPopover"
 import "./extensions/tableConfig.scss"
 
@@ -421,11 +420,12 @@ function MarkdownEditorInner() {
       UiState,
       TocNode.configure({ topOffset: 48 }),
       // --- Diff highlight (inline decorations) ---
-      DiffHighlight,
-      // --- MDX tag atoms (non-editable JSX tag chips) ---
-      MdxTag,
-      // --- TableConfig atoms (column type definitions for tables) ---
-      TableConfig,
+      DiffHighlight.configure({
+        normalizeMarkdown: (md: string) =>
+          unresolveImageUrls(unwrapJsxComponents(md), documentDirWebviewUri),
+      }),
+      // --- Raw text blocks (editable JSX tag blocks + TableConfig) ---
+      RawText,
       // --- Typewise: autocorrection + inline predictions ---
       TypewiseIntegration.configure({
         apiToken: typewiseToken,
@@ -646,13 +646,25 @@ function MarkdownEditorInner() {
   // --- Activate diff decorations when HEAD content arrives ---
   useEffect(() => {
     if (isDiffMode && headContent !== null && editor && !editor.isDestroyed) {
+      // Normalize HEAD: strip frontmatter and leading HTML blocks so we
+      // compare only the body, matching what the editor actually has.
+      const headParsed = parseFrontmatter(headContent)
+      const { body: headBody } = extractLeadingHtml(headParsed.body)
+
+      // Normalize current: unwrap JSX div markers back to original tags
+      // and convert resolved webview URIs back to relative paths.
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
+      const currentBody = unresolveImageUrls(
+        unwrapJsxComponents(md),
+        documentDirWebviewUri
+      )
+
       editor.view.dispatch(
         editor.state.tr.setMeta(diffHighlightKey, {
           type: "activate",
-          headContent,
-          currentMarkdown: md,
+          headContent: headBody,
+          currentMarkdown: currentBody,
         })
       )
     }

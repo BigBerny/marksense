@@ -7,9 +7,9 @@
  *
  * JSX tags (lines starting with an uppercase component name, e.g. `<Steps>`,
  * `</Step>`) are replaced with HTML `<div>` markers that TipTap's custom
- * MdxTag atom node can parse and render as non-editable chips.  The markdown
- * content *between* JSX tags passes through untouched so TipTap renders it
- * as normal editable content.
+ * RawText atom node can parse and render as editable raw-text blocks.  The
+ * markdown content *between* JSX tags passes through untouched so TipTap
+ * renders it as normal editable content.
  */
 
 // ─── Frontmatter ────────────────────────────────────────────────────────────
@@ -188,9 +188,8 @@ export function restoreLeadingHtml(
 
 // ─── TableConfig tag handling ────────────────────────────────────────────────
 //
-// `<TableConfig ... />` tags (possibly multi-line) are replaced with
-// `<div data-type="table-config">` markers *before* the generic JSX tag
-// replacement runs, so they get their own dedicated atom node in TipTap.
+// `<TableConfig ... />` tags (possibly multi-line) are handled first so they
+// are captured as a single raw-text block before the per-line JSX splitter runs.
 
 /**
  * Matches a self-closing `<TableConfig ... />` tag, possibly spanning
@@ -198,18 +197,11 @@ export function restoreLeadingHtml(
  */
 const TABLE_CONFIG_RE = /^[ \t]*<TableConfig\b[\s\S]*?\/\s*>[ \t]*$/gm
 
-/**
- * Pattern matching `<div data-type="table-config" ...>` markers produced
- * by TipTap's markdown serialiser for the TableConfig node.
- */
-const TABLE_CONFIG_DIV_RE =
-  /<div data-type="table-config" data-tag="([^"]*)">\s*<\/div>/g
-
 // ─── MDX JSX tag splitting ──────────────────────────────────────────────────
 //
 // Instead of wrapping entire JSX blocks, we split them into individual tag
-// lines.  Each tag becomes a `<div data-type="mdx-tag">` that TipTap's
-// MdxTag atom node can parse.  The markdown content *between* tags passes
+// lines.  Each tag becomes a `<div data-type="raw-text">` that TipTap's
+// RawText atom node can parse.  The markdown content *between* tags passes
 // through untouched so TipTap renders it as normal editable content.
 
 /**
@@ -247,11 +239,11 @@ function htmlDecode(str: string): string {
 }
 
 /**
- * Replace individual JSX tag lines with `<div data-type="mdx-tag">` markers
- * that TipTap's MdxTag atom node will parse.
+ * Replace individual JSX tag lines with `<div data-type="raw-text">` markers
+ * that TipTap's RawText atom node will parse.
  *
- * `<TableConfig ... />` tags are handled first and produce a distinct
- * `<div data-type="table-config">` marker so they get their own node type.
+ * `<TableConfig ... />` tags are handled first (may span multiple lines).
+ * All markers use the same `raw-text` data-type.
  *
  * Content between tags is left as-is (normal markdown).
  */
@@ -260,35 +252,30 @@ export function wrapJsxComponents(markdown: string): string {
   let result = markdown.replace(TABLE_CONFIG_RE, (match) => {
     const trimmed = match.trim()
     const encoded = htmlEncode(trimmed)
-    return `<div data-type="table-config" data-tag="${encoded}"></div>`
+    return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
   // Then handle all remaining JSX tags
   result = result.replace(JSX_TAG_LINE_RE, (match) => {
     const trimmed = match.trim()
     const encoded = htmlEncode(trimmed)
-    return `<div data-type="mdx-tag" data-tag="${encoded}"></div>`
+    return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
   return result
 }
 
 /**
- * Pattern matching the `<div data-type="mdx-tag" ...>` markers in the
+ * Pattern matching the `<div data-type="raw-text" ...>` markers in the
  * serialised markdown output from TipTap.
  */
-const MDX_DIV_RE =
-  /<div data-type="mdx-tag" data-tag="([^"]*)">\s*<\/div>/g
+const RAW_TEXT_DIV_RE =
+  /<div data-type="raw-text" data-tag="([^"]*)">\s*<\/div>/g
 
 /**
- * Restore JSX tag lines from the `<div data-type="mdx-tag">` and
- * `<div data-type="table-config">` markers that TipTap's markdown
- * serialiser produces.
+ * Restore JSX tag lines from the `<div data-type="raw-text">` markers
+ * that TipTap's markdown serialiser produces.
  */
 export function unwrapJsxComponents(markdown: string): string {
-  let result = markdown.replace(TABLE_CONFIG_DIV_RE, (_match, encoded: string) => {
+  return markdown.replace(RAW_TEXT_DIV_RE, (_match, encoded: string) => {
     return htmlDecode(encoded)
   })
-  result = result.replace(MDX_DIV_RE, (_match, encoded: string) => {
-    return htmlDecode(encoded)
-  })
-  return result
 }
