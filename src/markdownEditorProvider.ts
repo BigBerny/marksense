@@ -535,10 +535,20 @@ export class MarkdownEditorProvider
       vscode.Uri.joinPath(this.context.extensionUri, "dist", "webview.css")
     );
 
+    // Typewise SDK assets (loaded as a separate script + served as static files)
+    const sdkBaseUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "dist", "typewise-sdk")
+    ).toString();
+    const typewiseSdkScriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "dist", "typewise-sdk", "typewise.js")
+    );
+
     const nonce = getNonce();
 
     // Escape the initial content for safe embedding in HTML
     const escapedContent = JSON.stringify(initialContent);
+
+    const allSettings = { ...settings, typewiseSdkBaseUri: sdkBaseUri };
 
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -550,8 +560,9 @@ export class MarkdownEditorProvider
     img-src ${webview.cspSource} https: data:;
     style-src ${webview.cspSource} 'unsafe-inline';
     font-src ${webview.cspSource};
-    script-src 'nonce-${nonce}';
-    connect-src https://api.tiptap.dev https://*.tiptap.dev https://api.typewise.ai;
+    script-src 'nonce-${nonce}' 'wasm-unsafe-eval' ${webview.cspSource};
+    worker-src blob: ${webview.cspSource};
+    connect-src https://api.tiptap.dev https://*.tiptap.dev https://api.typewise.ai ${webview.cspSource};
   ">
   <style>
     /* Match VS Code theme instantly so there is no white flash. */
@@ -584,8 +595,9 @@ export class MarkdownEditorProvider
   <div id="root"></div>
   <script nonce="${nonce}">
     window.__INITIAL_CONTENT__ = ${escapedContent};
-    window.__SETTINGS__ = ${JSON.stringify(settings)};
+    window.__SETTINGS__ = ${JSON.stringify(allSettings)};
   </script>
+  <script nonce="${nonce}" src="${typewiseSdkScriptUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

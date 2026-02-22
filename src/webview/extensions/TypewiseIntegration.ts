@@ -2,22 +2,25 @@
  * Typewise AI integration for Tiptap.
  *
  * Corrections:
- *   - On word boundary (space/punctuation), calls POST /correction/final_word.
+ *   - On word boundary (space/punctuation), calls the local Typewise SDK
+ *     for spell-checking (autocorrection.correct).
  *   - "auto" → replace word (preserving formatting) + blue underline (click to revert).
- *   - "manual" → red underline (click for suggestions).
  *   - Click/hover on underline opens a CorrectionPopup (managed externally in React).
  *
+ * Grammar:
+ *   - Still uses the cloud API POST /grammar_correction/whole_text_grammar_correction.
+ *
  * Predictions:
- *   - On typing pause, calls POST /completion/sentence_complete.
+ *   - On typing pause, calls the local SDK (predictions.findPredictions).
  *   - Shows ghost text at cursor.
- *   - If typed chars match prediction prefix → advance overlap, skip API call.
+ *   - If typed chars match prediction prefix → advance overlap, skip SDK call.
  *   - Tab to accept, Esc to dismiss.
  *
  * Cursor stability:
  *   ProseMirror's tr.insertText(text, from, to) internally calls
  *   selectionToInsertionEnd(), which moves the cursor to the end of the
  *   replaced range. Because corrections are applied asynchronously (after
- *   an API round-trip), the user's cursor has moved on by then. Every
+ *   an SDK / API round-trip), the user's cursor has moved on by then. Every
  *   correction insertText is therefore followed by restoreSelection() to
  *   map the original cursor position through the change.
  *
@@ -41,6 +44,7 @@ import {
   type CorrectionEntry,
   type CorrectionSuggestion,
 } from "./typewise-api"
+import { typewiseSdk } from "./typewise-sdk-service"
 
 // Re-export shared types so existing imports from CorrectionPopup still work
 export type { CorrectionEntry, CorrectionSuggestion }
@@ -69,6 +73,21 @@ interface TypewiseOptions {
 // ─── Plugin key (exported for external access) ──────────────────────────────
 
 export const typewisePluginKey = new PluginKey<TypewisePluginState>("typewise")
+
+let _popupCloseTimer: ReturnType<typeof setTimeout> | null = null
+export function cancelPopupCloseTimer() {
+  if (_popupCloseTimer) { clearTimeout(_popupCloseTimer); _popupCloseTimer = null }
+}
+export function schedulePopupClose(view: any) {
+  if (_popupCloseTimer) clearTimeout(_popupCloseTimer)
+  _popupCloseTimer = setTimeout(() => {
+    _popupCloseTimer = null
+    const ps = typewisePluginKey.getState(view.state)
+    if (ps?.activeCorrection) {
+      view.dispatch(view.state.tr.setMeta(typewisePluginKey, { type: "close-popup" }))
+    }
+  }, 300)
+}
 
 function getTextBeforeCursor(state: EditorState): { text: string; blockStart: number } {
   const { $from } = state.selection
@@ -189,7 +208,6 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     let predictionTimer: ReturnType<typeof setTimeout> | null = null
     let predictionRequestId = 0
-    let correctionAbort: AbortController | null = null
     let grammarAbort: AbortController | null = null
     let grammarTimer: ReturnType<typeof setTimeout> | null = null
     let idleSpellTimer: ReturnType<typeof setTimeout> | null = null
@@ -225,67 +243,53 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       cachedGhostTextSpan = null
     }
 
-    // ── API: final word correction ────────────────────────────────────
+    // ── SDK: final word correction ──────────────────────────────────────
 
     async function checkFinalWord(sentenceText: string, blockStart: number) {
-      if (!opts.autocorrect || !opts.apiToken) return
+      if (!opts.autocorrect || !typewiseSdk.ready) return
       if (isInConfiguredTable(tiptapEditor.state)) return
 
-      // Abort any in-flight correction request
-      if (correctionAbort) correctionAbort.abort()
-      correctionAbort = new AbortController()
-      const signal = correctionAbort.signal
-
       try {
-        const data = await typewisePost(
-          opts.apiBaseUrl,
-          "/correction/final_word",
-          { text: sentenceText, languages: opts.languages },
-          opts.apiToken || undefined
-        )
-        if (signal.aborted || !data || tiptapEditor.isDestroyed) return
+        const data = await typewiseSdk.correct(sentenceText)
+        if (!data || tiptapEditor.isDestroyed) return
 
         const view = tiptapEditor.view
         const curState = view.state
 
-        // Use start_index_relative_to_end + chars_to_replace from the API
-        // to pinpoint exactly which characters to replace (only the final word).
-        // Note: the API returns start_index_relative_to_end as a negative number
-        // (e.g. -5 means "5 chars before the end"), so we use Math.abs().
         const charsToReplace = data.chars_to_replace || 0
         const relToEnd = Math.abs(data.start_index_relative_to_end) || charsToReplace
         const sentenceEnd = blockStart + sentenceText.length
 
-        // Position of the word to correct in the document
         let wordFrom = sentenceEnd - relToEnd
         let wordTo = wordFrom + charsToReplace
 
-        // Re-validate: check that the original word is still at the expected position
-        // in the current document (the user may have typed more since the request)
         const originalWord = data.original_word || ""
         if (originalWord && wordFrom >= 0 && wordTo <= curState.doc.content.size) {
           const currentText = curState.doc.textBetween(wordFrom, wordTo, "")
           if (currentText !== originalWord) {
-            // Word has moved or changed — try to find it near the expected position
             const { $from } = curState.selection
             const curBlockStart = $from.start()
             const curBlockEnd = $from.end()
             const blockText = curState.doc.textBetween(curBlockStart, curBlockEnd, "")
             const idx = blockText.lastIndexOf(originalWord)
-            if (idx === -1) return // word no longer present
+            if (idx === -1) return
             wordFrom = curBlockStart + idx
             wordTo = wordFrom + originalWord.length
           }
         }
 
-        // Skip corrections for words in the user dictionary
         if (isInDictionary(originalWord)) return
+        if (data.is_in_dictionary_case_insensitive) return
 
-        if (data.correctionType === "auto" && data.corrected_text && data.corrected_text !== data.original_text && charsToReplace > 0) {
-          // Use the first suggestion for the replacement word
-          const replacementWord = data.suggestions?.[0]?.correction || ""
-          if (!replacementWord) return
+        const topSuggestion = data.suggestions?.[0]
+        if (!topSuggestion?.correction || charsToReplace === 0) return
 
+        const topScore = topSuggestion.score ?? 0
+        const replacementWord = topSuggestion.correction
+        console.debug("[Typewise] correction result:", { originalWord, topSuggestion: replacementWord, topScore, inDict: data.is_in_dictionary_case_insensitive, suggestions: data.suggestions?.map((s: any) => `${s.correction}(${s.score?.toFixed(3)})`) })
+
+        // Auto-correct: high-confidence suggestion (score > 0.5)
+        if (topScore > 0.5 && replacementWord !== originalWord) {
           const correction: CorrectionEntry = {
             id: nextCorrectionId(),
             from: wordFrom,
@@ -303,34 +307,37 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
           tr.setMeta("addToHistory", false)
           suppressHoverUntilMove = true
-          console.debug("[Typewise] auto-correction:", { original: originalWord, replacement: replacementWord, at: [wordFrom, wordTo], cursor: curState.selection.anchor, restoredCursor: tr.selection.anchor })
+          console.debug("[Typewise] → auto-corrected:", originalWord, "→", replacementWord)
           view.dispatch(tr)
-        } else if (
-          data.correctionType === "manual" &&
-          data.suggestions?.length > 0 &&
-          !data.is_in_dictionary &&
-          charsToReplace > 0
-        ) {
-          if (wordFrom >= 0 && wordFrom < wordTo) {
-            const correction: CorrectionEntry = {
-              id: nextCorrectionId(),
-              from: wordFrom,
-              to: wordTo,
-              type: "manual",
-              source: "word",
-              originalValue: originalWord,
-              currentValue: originalWord,
-              suggestions: data.suggestions || [],
-            }
-            const manualTr = curState.tr.setMeta(typewisePluginKey, { type: "add-correction", correction })
-            manualTr.setMeta("addToHistory", false)
-            suppressHoverUntilMove = true
-            view.dispatch(manualTr)
-          }
+          return
         }
+
+        // Manual correction: word is misspelled (not in dictionary).
+        // Show a red underline; include alternatives with score > 0.05 if available.
+        const alternatives = (data.suggestions || []).filter(s => s.correction !== originalWord && (s.score ?? 0) > 0.05)
+
+        const ps = typewisePluginKey.getState(view.state)
+        const hasOverlap = ps?.corrections.some(c => c.from < wordTo && c.to > wordFrom)
+        if (hasOverlap) return
+
+        const manualCorrection: CorrectionEntry = {
+          id: nextCorrectionId(),
+          from: wordFrom,
+          to: wordTo,
+          type: "manual",
+          source: "word",
+          originalValue: originalWord,
+          currentValue: originalWord,
+          suggestions: alternatives,
+        }
+
+        const manualTr = view.state.tr.setMeta(typewisePluginKey, { type: "add-correction", correction: manualCorrection })
+        manualTr.setMeta("addToHistory", false)
+        suppressHoverUntilMove = true
+        console.debug("[Typewise] → manual correction:", originalWord, "alternatives:", alternatives.map((s: any) => `${s.correction}(${s.score?.toFixed(3)})`))
+        view.dispatch(manualTr)
       } catch (err: any) {
-        if (err?.name === "AbortError" || signal.aborted) return
-        console.debug("[Typewise] correction error:", err)
+        console.debug("[Typewise SDK] correction error:", err)
       }
     }
 
@@ -507,45 +514,36 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       }, delay)
     }
 
-    // ── API: sentence completion ──────────────────────────────────────
+    // ── SDK: sentence completion ───────────────────────────────────────
 
     async function fetchPrediction(text: string, cursorPos: number, requestId: number) {
-      if (!opts.predictions || !opts.apiToken || text.trim().length < 3) return
+      if (!opts.predictions || !typewiseSdk.ready || text.trim().length < 3) return
 
       try {
-        const data = await typewisePost(
-          opts.apiBaseUrl,
-          "/completion/sentence_complete",
-          { text, languages: opts.languages },
-          opts.apiToken || undefined
-        )
-        // Discard stale responses
+        const capitalize = text.length === 0 || isSentenceComplete(text)
+        const data = await typewiseSdk.findPredictions(text, capitalize)
         if (requestId !== predictionRequestId) return
         if (!data || tiptapEditor.isDestroyed) return
 
-        // Verify cursor hasn't moved since the request was made
         const currentPos = tiptapEditor.view.state.selection.$from.pos
         if (currentPos !== cursorPos) return
 
-        // Don't overwrite an existing prediction (it may have advanced via overlap)
         const currentPluginState = typewisePluginKey.getState(tiptapEditor.view.state)
         if (currentPluginState?.prediction) return
 
-        const pred = data.predictions?.[0]
+        const pred = data.prediction_candidates?.[0]
+        console.debug("[Typewise] prediction result:", { text: text.slice(-30), candidates: data.prediction_candidates?.length, top: pred?.text })
         if (!pred?.text) return
 
-        // Use the API's completionStartingIndex directly to compute ghost text
         const startIdx = pred.completionStartingIndex || 0
-        const lastRow = data.text?.split("\n").pop() || ""
+        const lastRow = data.text?.split("\n").pop() || text
 
-        // basePredictionText = what the user already typed that the prediction builds on
-        // When startIdx === 0, the prediction covers the entire line
         const basePredictionText = startIdx === 0 ? lastRow : lastRow.slice(0, startIdx)
         const fullPrediction = basePredictionText + pred.text
 
-        // Ghost text = the part of the full prediction the user hasn't typed yet
         const ghostText = fullPrediction.slice(lastRow.length)
         if (!ghostText || ghostText.length === 0) return
+        console.debug("[Typewise] → showing ghost text:", JSON.stringify(ghostText))
 
         tiptapEditor.view.dispatch(
           tiptapEditor.state.tr.setMeta(typewisePluginKey, {
@@ -556,7 +554,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           })
         )
       } catch (err) {
-        console.debug("[Typewise] prediction error:", err)
+        console.debug("[Typewise SDK] prediction error:", err)
       }
     }
 
@@ -874,6 +872,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
               target?.closest("[data-tw-correction-id]")?.getAttribute("data-tw-correction-id")
 
             if (corrId) {
+              cancelPopupCloseTimer()
               const ps = typewisePluginKey.getState(view.state)
               if (ps?.activeCorrection?.id !== corrId) {
                 view.dispatch(
@@ -884,6 +883,17 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
                 )
               }
             }
+            return false
+          },
+          mouseout(view, event) {
+            const ps = typewisePluginKey.getState(view.state)
+            if (!ps?.activeCorrection) return false
+
+            const related = event.relatedTarget as HTMLElement | null
+            const stillOnCorrection = related?.closest?.("[data-tw-correction-id]")
+            if (stillOnCorrection) return false
+
+            schedulePopupClose(view)
             return false
           },
         },
@@ -900,7 +910,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
             const blockStart = $from.start()
             const textBeforeCursor = view.state.doc.textBetween(blockStart, $from.pos, "")
             if (textBeforeCursor.trim().length >= 2) {
-              checkFinalWord(textBeforeCursor, blockStart)
+              checkFinalWord(textBeforeCursor + " ", blockStart)
             }
             if (textBeforeCursor.trim().length >= 3) {
               const fullText = view.state.doc.textBetween(0, $from.pos, "\n")
@@ -1024,7 +1034,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
                   const prevBlockStart = $prev.start()
                   const textUpToWord = prevState.doc.textBetween(prevBlockStart, prevWord.to, "")
                   if (textUpToWord.trim().length >= 2) {
-                    checkFinalWord(textUpToWord, prevBlockStart)
+                    checkFinalWord(textUpToWord + " ", prevBlockStart)
                   }
                 } catch { /* position may be invalid after drastic doc change */ }
               }
@@ -1041,7 +1051,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
                   const blockStart = $from.start()
                   const textUpToWord = view.state.doc.textBetween(blockStart, wordRange.to, "")
                   if (textUpToWord.trim().length >= 2) {
-                    checkFinalWord(textUpToWord, blockStart)
+                    checkFinalWord(textUpToWord + " ", blockStart)
                   }
                 }
               }, 5000)

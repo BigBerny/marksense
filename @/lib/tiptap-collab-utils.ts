@@ -9,6 +9,7 @@ declare global {
     __SETTINGS__?: {
       typewiseToken: string
       autoSaveDelay: number
+      typewiseSdkBaseUri?: string
     }
     __INITIAL_CONTENT__?: string
   }

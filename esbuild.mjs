@@ -1,5 +1,6 @@
 import * as esbuild from "esbuild";
 import { sassPlugin } from "esbuild-sass-plugin";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -24,6 +25,7 @@ const webviewConfig = {
   entryPoints: ["src/webview/index.tsx"],
   bundle: true,
   outfile: "dist/webview.js",
+  external: ["@typewise/autocorrect-predictions-sdk"],
   format: "iife",
   platform: "browser",
   target: "es2020",
@@ -59,7 +61,227 @@ const webviewConfig = {
   resolveExtensions: [".tsx", ".ts", ".jsx", ".js", ".json", ".scss", ".css"],
 };
 
+// ── Copy Typewise SDK assets to dist/typewise-sdk/ ─────────────────────────
+// The SDK needs WASM, Web Workers, and language resource files served as
+// static assets.  Resource files live in an external directory with
+// versioned subdirectories (set TYPEWISE_MODELS_DIR or place at
+// ../superhumanmodels).  The build scans all versions, picks the latest
+// copy of each file, and only copies resources for the target languages.
+
+const SDK_PKG = path.resolve(
+  __dirname,
+  "node_modules/@typewise/autocorrect-predictions-sdk"
+);
+
+const TARGET_LANGUAGES = ["en", "de", "es", "fr", "it", "pt"];
+
+function copyFileSync(src, dest) {
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+}
+
+function copyDirSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function resolveModelsDir() {
+  if (process.env.TYPEWISE_MODELS_DIR) {
+    const dir = path.resolve(process.env.TYPEWISE_MODELS_DIR);
+    if (fs.existsSync(dir)) return dir;
+    console.warn(`[build] TYPEWISE_MODELS_DIR=${dir} does not exist`);
+  }
+  const sibling = path.resolve(__dirname, "..", "superhumanmodels");
+  if (fs.existsSync(sibling)) return sibling;
+  return null;
+}
+
+/** Check whether a resource name is needed for TARGET_LANGUAGES. */
+function isRelevantResource(name) {
+  const GLOBAL = [
+    "company_config.json",
+    "global_library_settings.json",
+    "language_modelling_settings.json",
+  ];
+  if (GLOBAL.includes(name)) return true;
+  if (name.includes("charvocab")) return true;
+  if (name.startsWith("l=all_")) return true;
+
+  // Prediction model directories (l=en-c=superhuman-...) are large and
+  // handled separately via language_modelling_settings.json (step 3).
+  if (/^l=\w+-c=/.test(name)) return false;
+
+  for (const lang of TARGET_LANGUAGES) {
+    if (name === `typewise_db_${lang}.db`) return true;
+    if (name === `main_dictionary_${lang}.bin`) return true;
+    if (name === `additional_wordlist_${lang}.bin`) return true;
+    if (new RegExp(`^v[\\d.]+_API_${lang}$`).test(name)) return true;         // model dir
+    if (new RegExp(`^v[\\d.]+_API_${lang}\\.json$`).test(name)) return true;   // normalizer
+    if (new RegExp(`^v[\\d.]+_API_${lang}\\.normalizer\\.json$`).test(name)) return true;
+    if (name.startsWith(`l=${lang}_`) || name.startsWith(`l=${lang}-`)) return true;
+  }
+  return false;
+}
+
+function copyTypewiseSdkAssets() {
+  const dest = path.resolve(__dirname, "dist/typewise-sdk");
+
+  // 1. SDK bundle + WASM + Workers from node_modules
+  copyFileSync(path.join(SDK_PKG, "dist/typewise.js"), path.join(dest, "typewise.js"));
+  copyFileSync(path.join(SDK_PKG, "dist/sql-wasm.wasm"), path.join(dest, "sql-wasm.wasm"));
+  copyDirSync(path.join(SDK_PKG, "dist/onnx-1.18.0"), path.join(dest, "onnx-1.18.0"));
+  copyFileSync(path.join(SDK_PKG, "tf-js-web-worker-autocorrection.js"), path.join(dest, "tf-js-web-worker-autocorrection.js"));
+  copyFileSync(path.join(SDK_PKG, "tf-js-web-worker-predictions.js"), path.join(dest, "tf-js-web-worker-predictions.js"));
+  console.log("[build] Typewise SDK static assets copied");
+
+  // 2. Resource files from external models directory
+  const modelsDir = resolveModelsDir();
+  if (!modelsDir) {
+    console.warn(
+      "[build] No models directory found — SDK resources not copied.\n" +
+      "        Set TYPEWISE_MODELS_DIR or place models at ../superhumanmodels"
+    );
+    return;
+  }
+
+  // Collect version directories sorted newest → oldest
+  const versionDirs = fs
+    .readdirSync(modelsDir)
+    .filter((d) => /^\d+\.\d+\.\d+$/.test(d) && fs.statSync(path.join(modelsDir, d)).isDirectory())
+    .sort((a, b) => {
+      const va = a.split(".").map(Number);
+      const vb = b.split(".").map(Number);
+      for (let i = 0; i < 3; i++) {
+        if (va[i] !== vb[i]) return vb[i] - va[i];
+      }
+      return 0;
+    });
+
+  // Scan all versions newest-first; first occurrence of each resource wins.
+  const resourcesDest = path.join(dest, "resources");
+  /** @type {Set<string>} already-copied resource names */
+  const seen = new Set();
+  let copied = 0;
+
+  for (const ver of versionDirs) {
+    const resDir = path.join(modelsDir, ver, "resources");
+    if (!fs.existsSync(resDir)) continue;
+
+    for (const entry of fs.readdirSync(resDir, { withFileTypes: true })) {
+      if (seen.has(entry.name)) continue;
+      if (!isRelevantResource(entry.name)) continue;
+
+      const src = path.join(resDir, entry.name);
+      const dst = path.join(resourcesDest, entry.name);
+
+      if (entry.isDirectory()) {
+        copyDirSync(src, dst);
+      } else {
+        copyFileSync(src, dst);
+      }
+      seen.add(entry.name);
+      copied++;
+    }
+  }
+
+  console.log(
+    `[build] Typewise resources: ${copied} files/dirs copied ` +
+    `for [${TARGET_LANGUAGES.join(", ")}] from ${modelsDir}`
+  );
+
+  // 3. Patch language_modelling_settings.json with fields required by
+  //    the current SDK version but absent in older config files, and fix the 
+  //    English prediction model to the ONNX v4.3 version.
+  const lmsPath = path.join(resourcesDest, "language_modelling_settings.json");
+  if (fs.existsSync(lmsPath)) {
+    try {
+      let lmsStr = fs.readFileSync(lmsPath, "utf-8");
+      
+      // Patch the english prediction model to v4.3 ONNX
+      if (lmsStr.includes("at_v3.0_newline_in_vocab_single_ckpt")) {
+        lmsStr = lmsStr.replace(
+          /l=en-c=superhuman-st_d=2048-ep=50-lr=0.0005-fin_lr=0.0000_at_v3\.0_newline_in_vocab_single_ckpt/g,
+          "l=en-c=superhuman-st_d=2048-ep=50-lr=0.0005-fin_lr=0.0000_at_v4.3_newline_in_vocab_single_ckpt"
+        );
+        fs.writeFileSync(lmsPath, lmsStr);
+        console.log("[build]   ~ patched language_modelling_settings.json (en prediction model -> v4.3 ONNX)");
+      }
+
+      // Add missing SDK fields
+      const lms = JSON.parse(fs.readFileSync(lmsPath, "utf-8"));
+      let patched = false;
+      if (lms.use_unknown_in_language_detection === undefined) {
+        lms.use_unknown_in_language_detection = true;
+        patched = true;
+      }
+      // Remove non-English language entries from lang_to_model_names entirely
+      // because their ONNX prediction models are not available (only old TFJS
+      // ones exist).  The SDK still autocorrects these languages via the
+      // v*_API_xx models and dictionaries.
+      if (lms.lang_to_model_names) {
+        for (const lang of Object.keys(lms.lang_to_model_names)) {
+          if (lang === "en") continue;
+          delete lms.lang_to_model_names[lang];
+          patched = true;
+        }
+      }
+
+      if (patched) {
+        fs.writeFileSync(lmsPath, JSON.stringify(lms, null, 2) + "\n");
+        console.log("[build]   ~ patched language_modelling_settings.json (added missing SDK fields)");
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // 4. Copy prediction model directories referenced by
+  //    language_modelling_settings.json (only for TARGET_LANGUAGES)
+  if (fs.existsSync(lmsPath)) {
+    try {
+      const lms = JSON.parse(fs.readFileSync(lmsPath, "utf-8"));
+      const modelNames = new Set();
+
+      for (const [lang, cfg] of Object.entries(lms.lang_to_model_names || {})) {
+        if (!TARGET_LANGUAGES.includes(lang)) continue;
+        for (const key of ["word_completion_model_name", "sentence_completion_model_name"]) {
+          if (cfg[key]) modelNames.add(cfg[key]);
+        }
+        const combo = cfg.sentence_completion_combination_model_settings;
+        if (combo?.model_name_to_inference_technique) {
+          for (const mn of Object.keys(combo.model_name_to_inference_technique)) {
+            modelNames.add(mn);
+          }
+        }
+      }
+
+      for (const modelName of modelNames) {
+        const modelDest = path.join(resourcesDest, modelName);
+        if (fs.existsSync(modelDest)) continue;
+
+        for (const ver of versionDirs) {
+          const candidate = path.join(modelsDir, ver, "resources", modelName);
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+            copyDirSync(candidate, modelDest);
+            console.log(`[build]   + prediction model: ${modelName} (${ver})`);
+            break;
+          }
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+}
+
 async function build() {
+  copyTypewiseSdkAssets();
+
   if (isWatch) {
     const extCtx = await esbuild.context(extensionConfig);
     const webCtx = await esbuild.context(webviewConfig);

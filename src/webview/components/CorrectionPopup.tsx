@@ -13,6 +13,8 @@ import type { Editor } from "@tiptap/core"
 import {
   typewisePluginKey,
   addToDictionary,
+  cancelPopupCloseTimer,
+  schedulePopupClose,
   type CorrectionEntry,
   type TypewisePluginState,
 } from "../extensions/TypewiseIntegration"
@@ -335,6 +337,8 @@ export function CorrectionPopup({ editor }: CorrectionPopupProps) {
         alignItems: "stretch",
         animation: "popover 150ms ease-out",
       }}
+      onMouseEnter={() => cancelPopupCloseTimer()}
+      onMouseLeave={() => schedulePopupClose(editor.view)}
       onMouseDown={(e) => {
         // Stop propagation so the document-level click-outside handler
         // doesn't close the popup before onClick fires on buttons

@@ -1,5 +1,8 @@
 /**
  * Shared Typewise API helpers used by both the Tiptap and CodeMirror integrations.
+ *
+ * The cloud API (`typewisePost`) is only used for grammar correction now.
+ * Spell-check and predictions use the local SDK (see typewise-sdk-service.ts).
  */
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -68,6 +71,17 @@ export function addToDictionary(word: string): void {
   try {
     localStorage.setItem(DICT_STORAGE_KEY, JSON.stringify([...userDictionary]))
   } catch { /* quota exceeded — ignore */ }
+
+  // Sync the full dictionary into the local SDK so its autocorrector
+  // skips user-approved words too.
+  import("./typewise-sdk-service").then(({ typewiseSdk }) => {
+    typewiseSdk.setUserDictionaryWords([...userDictionary])
+  }).catch(() => {})
+}
+
+/** Return all user dictionary words (for syncing with the SDK on init). */
+export function getUserDictionaryWords(): string[] {
+  return [...userDictionary]
 }
 
 export function isInDictionary(word: string): boolean {

@@ -75,6 +75,9 @@ import { TocSidebar } from "@/components/tiptap-node/toc-node"
 // --- Lib ---
 import { MAX_FILE_SIZE } from "@/lib/tiptap-utils"
 
+// --- Typewise SDK (local spell-check & predictions) ---
+import { typewiseSdk, type SdkResourcePaths } from "./extensions/typewise-sdk-service"
+import { getUserDictionaryWords } from "./extensions/typewise-api"
 
 // --- Styles ---
 import "@/components/tiptap-templates/notion-like/notion-like-editor.scss"
@@ -369,6 +372,29 @@ function MarkdownEditorInner() {
   const [sourceEditorView, setSourceEditorView] = useState<import("@codemirror/view").EditorView | null>(null)
 
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
+  const typewiseSdkBaseUri = window.__SETTINGS__?.typewiseSdkBaseUri || ""
+
+  // Initialize the Typewise SDK (local WASM-based spell-check & predictions)
+  useEffect(() => {
+    if (!typewiseSdkBaseUri) return
+
+    const paths: SdkResourcePaths = {
+      resourcesPath: `${typewiseSdkBaseUri}/resources`,
+      dbPath: `${typewiseSdkBaseUri}/resources/typewise_db`,
+      flatBuffersFilesPath: `${typewiseSdkBaseUri}/resources`,
+      wasmPath: `${typewiseSdkBaseUri}`,
+      mlLibraryPath: `${typewiseSdkBaseUri}`,
+      autocorrectionWorkerPath: `${typewiseSdkBaseUri}/tf-js-web-worker-autocorrection.js`,
+      predictionsWorkerPath: `${typewiseSdkBaseUri}/tf-js-web-worker-predictions.js`,
+    }
+
+    typewiseSdk.initialize(["en", "de", "fr"], paths).then(() => {
+      const words = getUserDictionaryWords()
+      if (words.length > 0) typewiseSdk.setUserDictionaryWords(words)
+    })
+
+    return () => { typewiseSdk.destroy() }
+  }, [typewiseSdkBaseUri])
 
   const sourceEditorExtensions = useMemo(() => [
     ...cmTypewise({

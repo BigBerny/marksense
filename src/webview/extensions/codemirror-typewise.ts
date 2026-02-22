@@ -1,9 +1,9 @@
 /**
  * Typewise AI integration for CodeMirror 6.
  *
- * Provides autocorrect, grammar correction, and sentence prediction
- * in the source editor, matching the behaviour of TypewiseIntegration.ts
- * (the Tiptap/ProseMirror version).
+ * Provides autocorrect (via local SDK), grammar correction (via cloud API),
+ * and sentence prediction (via local SDK) in the source editor, matching
+ * the behaviour of TypewiseIntegration.ts (the Tiptap/ProseMirror version).
  */
 
 import {
@@ -23,6 +23,7 @@ import {
   SENTENCE_END_PUNCTUATION,
   type CorrectionEntry,
 } from "./typewise-api"
+import { typewiseSdk } from "./typewise-sdk-service"
 
 // ─── Effects ──────────────────────────────────────────────────────────────────
 
@@ -341,13 +342,11 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     private predictionTimer: ReturnType<typeof setTimeout> | null = null
     private predictionRequestId = 0
     private grammarTimer: ReturnType<typeof setTimeout> | null = null
-    private correctionAbort: AbortController | null = null
     private grammarAbort: AbortController | null = null
     private lastInput = ""
 
     update(update: ViewUpdate) {
       if (!update.docChanged) return
-      if (!opts.apiToken) return
 
       // Detect typed character
       let insertedText = ""
@@ -360,16 +359,16 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
       this.lastInput = insertedText
       const lastChar = insertedText[insertedText.length - 1]
 
-      // Check final word on word boundary
-      if (opts.autocorrect && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
+      // Check final word on word boundary (uses local SDK)
+      if (opts.autocorrect && typewiseSdk.ready && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
         const { text, blockStart } = getTextBeforeCursor(update.state)
         if (text.trim().length >= 2) {
           this.checkFinalWord(update.view, text, blockStart)
         }
       }
 
-      // Grammar on sentence end
-      if (opts.autocorrect) {
+      // Grammar on sentence end (uses cloud API — needs apiToken)
+      if (opts.autocorrect && opts.apiToken) {
         const isSentenceEnd = SENTENCE_END_PUNCTUATION.includes(lastChar) ||
           (lastChar === " " && update.state.selection.main.head > 0 &&
             SENTENCE_END_PUNCTUATION.includes(
@@ -383,27 +382,18 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
         }
       }
 
-      // Schedule prediction
-      if (opts.predictions) {
+      // Schedule prediction (uses local SDK)
+      if (opts.predictions && typewiseSdk.ready) {
         this.schedulePrediction(update.view)
       }
     }
 
     async checkFinalWord(view: EditorView, sentenceText: string, blockStart: number) {
-      if (!opts.autocorrect || !opts.apiToken) return
-
-      if (this.correctionAbort) this.correctionAbort.abort()
-      this.correctionAbort = new AbortController()
-      const signal = this.correctionAbort.signal
+      if (!opts.autocorrect || !typewiseSdk.ready) return
 
       try {
-        const data = await typewisePost(
-          opts.apiBaseUrl,
-          "/correction/final_word",
-          { text: sentenceText, languages: opts.languages },
-          opts.apiToken
-        )
-        if (signal.aborted || !data) return
+        const data = await typewiseSdk.correct(sentenceText)
+        if (!data) return
 
         const charsToReplace = data.chars_to_replace || 0
         const relToEnd = Math.abs(data.start_index_relative_to_end) || charsToReplace
@@ -426,13 +416,17 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
         }
 
         if (isInDictionary(originalWord)) return
+        if (data.is_in_dictionary_case_insensitive) return
         if (isInsideMarkdownSyntax(view.state, wordFrom, wordTo)) return
 
-        if (data.correctionType === "auto" && data.corrected_text && data.corrected_text !== data.original_text && charsToReplace > 0) {
-          const replacementWord = data.suggestions?.[0]?.correction || ""
-          if (!replacementWord) return
-          if (isCasingOnlyChange(originalWord, replacementWord)) return
+        const topSuggestion = data.suggestions?.[0]
+        if (!topSuggestion?.correction || charsToReplace === 0) return
 
+        const topScore = topSuggestion.score ?? 0
+        const replacementWord = topSuggestion.correction
+
+        // Auto-correct: high-confidence suggestion (score > 0.5)
+        if (topScore > 0.5 && replacementWord !== originalWord && !isCasingOnlyChange(originalWord, replacementWord)) {
           const correction: CorrectionEntry = {
             id: nextCorrectionId(),
             from: wordFrom,
@@ -450,24 +444,27 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
             effects: addCorrection.of(correction),
             selection: { anchor: view.state.changes({ from: wordFrom, to: wordTo, insert: replacementWord }).mapPos(cursorPos) },
           })
-        } else if (data.correctionType === "manual" && data.suggestions?.length > 0 && !data.is_in_dictionary && charsToReplace > 0) {
-          if (wordFrom >= 0 && wordFrom < wordTo) {
-            const correction: CorrectionEntry = {
-              id: nextCorrectionId(),
-              from: wordFrom,
-              to: wordTo,
-              type: "manual",
-              source: "word",
-              originalValue: originalWord,
-              currentValue: originalWord,
-              suggestions: data.suggestions || [],
-            }
-            view.dispatch({ effects: addCorrection.of(correction) })
-          }
+          return
         }
+
+        // Manual correction: word is misspelled (not in dictionary).
+        // Show a red underline; include alternatives with score > 0.05 if available.
+        const alternatives = (data.suggestions || []).filter(s => s.correction !== originalWord && (s.score ?? 0) > 0.05)
+
+        const manualCorrection: CorrectionEntry = {
+          id: nextCorrectionId(),
+          from: wordFrom,
+          to: wordTo,
+          type: "manual",
+          source: "word",
+          originalValue: originalWord,
+          currentValue: originalWord,
+          suggestions: alternatives,
+        }
+
+        view.dispatch({ effects: addCorrection.of(manualCorrection) })
       } catch (err: any) {
-        if (err?.name === "AbortError" || signal.aborted) return
-        console.debug("[Typewise/CM] correction error:", err)
+        console.debug("[Typewise SDK/CM] correction error:", err)
       }
     }
 
@@ -576,15 +573,11 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     }
 
     async fetchPrediction(view: EditorView, text: string, cursorPos: number, requestId: number) {
-      if (!opts.predictions || !opts.apiToken || text.trim().length < 3) return
+      if (!opts.predictions || !typewiseSdk.ready || text.trim().length < 3) return
 
       try {
-        const data = await typewisePost(
-          opts.apiBaseUrl,
-          "/completion/sentence_complete",
-          { text, languages: opts.languages },
-          opts.apiToken
-        )
+        const capitalize = text.length === 0 || isSentenceComplete(text)
+        const data = await typewiseSdk.findPredictions(text, capitalize)
         if (requestId !== this.predictionRequestId || !data) return
 
         const currentPos = view.state.selection.main.head
@@ -593,11 +586,11 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
         const twState = view.state.field(cmTypewiseState)
         if (twState.prediction) return
 
-        const pred = data.predictions?.[0]
+        const pred = data.prediction_candidates?.[0]
         if (!pred?.text) return
 
         const startIdx = pred.completionStartingIndex || 0
-        const lastRow = data.text?.split("\n").pop() || ""
+        const lastRow = data.text?.split("\n").pop() || text
         const basePredictionText = startIdx === 0 ? lastRow : lastRow.slice(0, startIdx)
         const fullPrediction = basePredictionText + pred.text
         const ghostText = fullPrediction.slice(lastRow.length)
@@ -607,7 +600,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
           effects: setPrediction.of({ fullText: fullPrediction, ghostText, cursorPos }),
         })
       } catch (err) {
-        console.debug("[Typewise/CM] prediction error:", err)
+        console.debug("[Typewise SDK/CM] prediction error:", err)
       }
     }
 
@@ -688,9 +681,6 @@ const typewiseKeymap = Prec.highest(keymap.of([
 
 export function cmTypewise(options: Partial<CMTypewiseOptions> = {}) {
   const opts = { ...defaultOptions, ...options }
-  if (!opts.apiToken) {
-    return [cmTypewiseState]
-  }
   return [
     cmTypewiseState,
     createTypewisePlugin(opts),
