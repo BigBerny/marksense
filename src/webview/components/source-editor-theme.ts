@@ -132,6 +132,11 @@ export const marksenseTheme = EditorView.theme({
     textUnderlineOffset: "3px",
     textDecorationThickness: "1px",
   },
+  ".cm-gutter-lint .cm-gutterElement": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   ".cm-lint-marker": {
     width: "0.9em",
     height: "0.9em",

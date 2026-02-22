@@ -29,15 +29,6 @@
 
   @media screen and (min-width: 1280px) {
     display: none;
-
-    &[data-source-mode="true"] {
-      display: flex;
-      border-bottom-color: var(--tt-notion-like-editor-header-border);
-    }
-
-    &[data-source-mode="true"] &-actions {
-      display: flex;
-    }
   }
 }
 

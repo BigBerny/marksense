@@ -323,9 +323,13 @@ function MarkdownEditorInner() {
   const rawPrefixRef = useRef(initialParsed.rawPrefix)
   const [rawPrefix, setRawPrefix] = useState(initialParsed.rawPrefix)
 
-  const [sourceMode, setSourceMode] = useState(false)
-  const [sourceContent, setSourceContent] = useState("")
-  const sourceContentOriginal = useRef("")
+  const [sourceMode, setSourceMode] = useState(() => {
+    const state = vscode.getState() as Record<string, unknown> | undefined
+    return state && typeof state.sourceMode === "boolean" ? state.sourceMode : false
+  })
+  const initialSourceContent = sourceMode ? (window.__INITIAL_CONTENT__ || "") : ""
+  const [sourceContent, setSourceContent] = useState(initialSourceContent)
+  const sourceContentOriginal = useRef(initialSourceContent)
   const sourceEditorRef = useRef<SourceEditorHandle>(null)
   const [sourceEditorView, setSourceEditorView] = useState<import("@codemirror/view").EditorView | null>(null)
 
@@ -707,7 +711,12 @@ function MarkdownEditorInner() {
         })
       }
     }
-    setSourceMode((prev) => !prev)
+    setSourceMode((prev) => {
+      const next = !prev
+      const state = (vscode.getState() as Record<string, unknown>) || {}
+      vscode.setState({ ...state, sourceMode: next })
+      return next
+    })
   }, [editor, sourceMode, sourceContent])
 
   // ── Frontmatter change handler ─────────────────────────────────────
@@ -808,6 +817,7 @@ function MarkdownEditorInner() {
             <SourceTocSidebar
               sourceContent={sourceContent}
               editorView={sourceEditorView}
+              actions={<EditorActions sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />}
             />
           </div>
         ) : (

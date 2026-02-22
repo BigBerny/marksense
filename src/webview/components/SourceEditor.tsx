@@ -82,8 +82,8 @@ const markdownKeymap = keymap.of([
 
 function handleEnterForLists(view: EditorView): boolean {
   const { state } = view
-  const { from } = state.selection.main
-  const line = state.doc.lineAt(from)
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
   const lineText = line.text
 
   const listMatch = lineText.match(/^(\s*)([-*+]|\d+\.)\s/)
@@ -106,10 +106,11 @@ function handleEnterForLists(view: EditorView): boolean {
     nextMarker = `${parseInt(numMatch[1]) + 1}.`
   }
 
-  const insert = `\n${indent}${nextMarker} `
+  const trailing = state.sliceDoc(head, line.to)
+  const prefix = `\n${indent}${nextMarker} `
   view.dispatch({
-    changes: { from, to: from, insert },
-    selection: { anchor: from + insert.length },
+    changes: { from: head, to: line.to, insert: prefix + trailing },
+    selection: { anchor: head + prefix.length },
   })
   return true
 }

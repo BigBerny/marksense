@@ -1,8 +1,9 @@
 /**
  * Lightweight Markdown linter for CodeMirror 6.
  *
- * Checks common markdown issues and reports them as CodeMirror diagnostics
- * with inline squiggly underlines and hover tooltips.
+ * Rules are aligned with how the Tiptap rich text editor serializes markdown:
+ * single blank lines between all block elements, no trailing whitespace,
+ * single space after heading markers, file ends with newline.
  */
 
 import { linter, type Diagnostic } from "@codemirror/lint"
@@ -20,7 +21,24 @@ interface LintResult {
   severity: "warning" | "error" | "info"
 }
 
+function isListLine(line: string): boolean {
+  return /^\s*([-*+]|\d+\.)\s/.test(line)
+}
+
+function isHeadingLine(line: string): boolean {
+  return /^#{1,6}\s/.test(line)
+}
+
+function isFencedCodeStart(line: string): boolean {
+  return /^(`{3,}|~{3,})/.test(line.trimStart())
+}
+
+function isBlockquoteLine(line: string): boolean {
+  return /^\s*>\s?/.test(line)
+}
+
 const rules: LintRule[] = [
+  // Trailing whitespace
   {
     id: "MD009",
     check(_text, lines) {
@@ -43,6 +61,8 @@ const rules: LintRule[] = [
       return results
     },
   },
+
+  // Multiple consecutive blank lines
   {
     id: "MD012",
     check(_text, lines) {
@@ -70,28 +90,8 @@ const rules: LintRule[] = [
       return results
     },
   },
-  {
-    id: "MD022",
-    check(_text, lines) {
-      const results: LintResult[] = []
-      let pos = 0
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i]
-        const prevLine = lines[i - 1]
-        if (/^#{1,6}\s/.test(line) && prevLine.trim() !== "" && !/^#{1,6}\s/.test(prevLine) && !/^---/.test(prevLine)) {
-          results.push({
-            line: i + 1,
-            from: pos,
-            to: pos + line.length,
-            message: "Heading should be preceded by a blank line",
-            severity: "warning",
-          })
-        }
-        pos += lines[i - 1].length + 1
-      }
-      return results
-    },
-  },
+
+  // Multiple spaces after heading marker
   {
     id: "MD019",
     check(_text, lines) {
@@ -114,21 +114,58 @@ const rules: LintRule[] = [
       return results
     },
   },
+
+  // Heading should be preceded by a blank line
   {
-    id: "MD047",
-    check(text, _lines) {
-      if (text.length > 0 && !text.endsWith("\n")) {
-        return [{
-          line: text.split("\n").length,
-          from: text.length,
-          to: text.length,
-          message: "File should end with a newline character",
-          severity: "info",
-        }]
+    id: "MD022",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]
+        const prevLine = lines[i - 1]
+        if (isHeadingLine(line) && prevLine.trim() !== "" && !isHeadingLine(prevLine) && !/^---/.test(prevLine)) {
+          results.push({
+            line: i + 1,
+            from: pos,
+            to: pos + line.length,
+            message: "Heading should be preceded by a blank line",
+            severity: "info",
+          })
+        }
+        pos += lines[i - 1].length + 1
       }
-      return []
+      return results
     },
   },
+
+  // Heading should be followed by a blank line
+  {
+    id: "MD022b",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (isHeadingLine(line) && i + 1 < lines.length) {
+          const nextLine = lines[i + 1]
+          if (nextLine.trim() !== "" && !isHeadingLine(nextLine)) {
+            results.push({
+              line: i + 1,
+              from: pos,
+              to: pos + line.length,
+              message: "Heading should be followed by a blank line",
+              severity: "info",
+            })
+          }
+        }
+        pos += line.length + 1
+      }
+      return results
+    },
+  },
+
+  // List should be preceded by a blank line
   {
     id: "MD032",
     check(_text, lines) {
@@ -136,12 +173,9 @@ const rules: LintRule[] = [
       let pos = 0
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]
-        const isList = /^\s*([-*+]|\d+\.)\s/.test(line)
-
-        if (isList && i > 0) {
+        if (isListLine(line) && i > 0) {
           const prevLine = lines[i - 1]
-          const prevIsList = /^\s*([-*+]|\d+\.)\s/.test(prevLine)
-          if (prevLine.trim() !== "" && !prevIsList && !/^#{1,6}\s/.test(prevLine)) {
+          if (prevLine.trim() !== "" && !isListLine(prevLine) && !isHeadingLine(prevLine)) {
             results.push({
               line: i + 1,
               from: pos,
@@ -152,6 +186,97 @@ const rules: LintRule[] = [
           }
         }
         pos += line.length + 1
+      }
+      return results
+    },
+  },
+
+  // List should be followed by a blank line
+  {
+    id: "MD032b",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (isListLine(line) && i + 1 < lines.length) {
+          const nextLine = lines[i + 1]
+          if (nextLine.trim() !== "" && !isListLine(nextLine)) {
+            results.push({
+              line: i + 1,
+              from: pos,
+              to: pos + line.length,
+              message: "List should be followed by a blank line",
+              severity: "info",
+            })
+          }
+        }
+        pos += line.length + 1
+      }
+      return results
+    },
+  },
+
+  // Code block should be surrounded by blank lines
+  {
+    id: "MD031",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      let inCodeBlock = false
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (isFencedCodeStart(line)) {
+          if (!inCodeBlock) {
+            // Opening fence — check line before
+            if (i > 0 && lines[i - 1].trim() !== "") {
+              results.push({
+                line: i + 1,
+                from: pos,
+                to: pos + line.length,
+                message: "Code block should be preceded by a blank line",
+                severity: "info",
+              })
+            }
+          } else {
+            // Closing fence — check line after
+            if (i + 1 < lines.length && lines[i + 1].trim() !== "") {
+              results.push({
+                line: i + 1,
+                from: pos,
+                to: pos + line.length,
+                message: "Code block should be followed by a blank line",
+                severity: "info",
+              })
+            }
+          }
+          inCodeBlock = !inCodeBlock
+        }
+        pos += line.length + 1
+      }
+      return results
+    },
+  },
+
+  // Blockquote should be preceded by a blank line
+  {
+    id: "MD028",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]
+        const prevLine = lines[i - 1]
+        if (isBlockquoteLine(line) && !isBlockquoteLine(prevLine) && prevLine.trim() !== "") {
+          results.push({
+            line: i + 1,
+            from: pos,
+            to: pos + line.length,
+            message: "Blockquote should be preceded by a blank line",
+            severity: "info",
+          })
+        }
+        pos += lines[i - 1].length + 1
       }
       return results
     },
@@ -169,25 +294,17 @@ export const markdownLinter = linter(
       for (const r of results) {
         const from = Math.min(r.from, text.length)
         const to = Math.min(Math.max(r.to, from), text.length)
-        if (from === to && from === text.length) {
-          diagnostics.push({
-            from: Math.max(0, from - 1),
-            to: from,
-            message: `${rule.id}: ${r.message}`,
-            severity: r.severity,
-          })
-        } else {
-          diagnostics.push({
-            from,
-            to,
-            message: `${rule.id}: ${r.message}`,
-            severity: r.severity,
-          })
-        }
+        if (from === to) continue
+        diagnostics.push({
+          from,
+          to,
+          message: `${rule.id}: ${r.message}`,
+          severity: r.severity,
+        })
       }
     }
 
     return diagnostics
   },
-  { delay: 500 }
+  { delay: 100 }
 )
