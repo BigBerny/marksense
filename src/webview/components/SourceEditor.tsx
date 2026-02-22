@@ -7,12 +7,33 @@
  */
 
 import { useEffect, useRef, forwardRef, useImperativeHandle } from "react"
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, highlightSpecialChars, type ViewUpdate } from "@codemirror/view"
-import { EditorState, type Extension } from "@codemirror/state"
-import { markdown } from "@codemirror/lang-markdown"
+import {
+  EditorView,
+  Decoration,
+  type DecorationSet,
+  ViewPlugin,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  drawSelection,
+  rectangularSelection,
+  highlightSpecialChars,
+  type ViewUpdate,
+} from "@codemirror/view"
+import { EditorState, RangeSetBuilder, type Extension } from "@codemirror/state"
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown"
 import { html } from "@codemirror/lang-html"
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import { bracketMatching, foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, foldKeymap } from "@codemirror/language"
+import {
+  bracketMatching,
+  foldGutter,
+  indentOnInput,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  foldKeymap,
+  syntaxTree,
+} from "@codemirror/language"
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search"
 import { closeBrackets, closeBracketsKeymap, autocompletion } from "@codemirror/autocomplete"
 import { lintKeymap } from "@codemirror/lint"
@@ -28,6 +49,58 @@ interface SourceEditorProps {
   extensions?: Extension[]
   onViewReady?: (view: EditorView | null) => void
 }
+
+const markRegex = /==(?=\S)([^\n]*?\S)==/g
+
+function isCodeNodeName(name: string): boolean {
+  return name.includes("Code")
+}
+
+function buildMarkDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>()
+  const tree = syntaxTree(view.state)
+
+  for (const { from, to } of view.visibleRanges) {
+    const text = view.state.doc.sliceString(from, to)
+    markRegex.lastIndex = 0
+    let match: RegExpExecArray | null
+
+    while ((match = markRegex.exec(text)) !== null) {
+      const start = from + match.index
+      const end = start + match[0].length
+      if (end <= start) continue
+
+      const startNode = tree.resolveInner(start, 1)
+      const endNode = tree.resolveInner(end - 1, -1)
+      if (isCodeNodeName(startNode.name) || isCodeNodeName(endNode.name)) {
+        continue
+      }
+
+      builder.add(start, end, Decoration.mark({ class: "cm-mark-highlight" }))
+    }
+  }
+
+  return builder.finish()
+}
+
+const markHighlightPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+
+    constructor(view: EditorView) {
+      this.decorations = buildMarkDecorations(view)
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildMarkDecorations(update.view)
+      }
+    }
+  },
+  {
+    decorations: (v) => v.decorations,
+  }
+)
 
 function wrapWithMarkers(view: EditorView, marker: string): boolean {
   const { state } = view
@@ -160,7 +233,11 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(
           closeBrackets(),
           autocompletion(),
           highlightSelectionMatches(),
-          markdown({ htmlTagLanguage: html() }),
+          markdown({
+            base: markdownLanguage,
+            htmlTagLanguage: html(),
+          }),
+          markHighlightPlugin,
           EditorView.lineWrapping,
           listContinuationKeymap,
           markdownKeymap,

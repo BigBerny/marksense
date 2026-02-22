@@ -65,6 +65,10 @@ export const marksenseTheme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": {
     backgroundColor: "var(--tt-color-highlight-orange, rgb(251, 236, 221))",
   },
+  ".cm-mark-highlight": {
+    backgroundColor: "var(--tt-color-highlight-yellow, #fef9c3)",
+    borderRadius: "2px",
+  },
   ".cm-panels": {
     backgroundColor: "var(--tt-bg-color, #fff)",
     borderBottom: "1px solid var(--tt-border-color)",
