@@ -1,12 +1,9 @@
 import { WidthToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-width-toggle"
 
-// --- Tiptap UI ---
-import { UndoRedoButton } from "@/components/tiptap-ui/undo-redo-button"
-
 // --- UI Primitives ---
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
 import { Separator } from "@/components/tiptap-ui-primitive/separator"
-import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
+import { Button } from "@/components/tiptap-ui-primitive/button"
 
 // --- Diff ---
 import { useDiff } from "../../../../src/webview/DiffContext"
@@ -64,13 +61,6 @@ export function EditorActions({ sourceMode, onToggleSourceMode }: EditorActionsP
 
   return (
     <>
-      <ButtonGroup orientation="horizontal">
-        <UndoRedoButton action="undo" />
-        <UndoRedoButton action="redo" />
-      </ButtonGroup>
-
-      <Separator />
-
       {isGitRepo && (
         <Button
           onClick={openDiffEditor}

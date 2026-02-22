@@ -31,24 +31,20 @@ import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey, type EditorState, type Transaction, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
 import { isInConfiguredTable } from "./TableConfigPlugin"
+import {
+  typewisePost,
+  nextCorrectionId,
+  addToDictionary,
+  isInDictionary,
+  isSentenceComplete,
+  SENTENCE_END_PUNCTUATION,
+  type CorrectionEntry,
+  type CorrectionSuggestion,
+} from "./typewise-api"
 
-// ─── Public types (shared with CorrectionPopup) ─────────────────────────────
-
-export interface CorrectionSuggestion {
-  correction: string
-  score: number
-}
-
-export interface CorrectionEntry {
-  id: string
-  from: number
-  to: number
-  type: "auto" | "manual"
-  source: "word" | "grammar"
-  originalValue: string
-  currentValue: string
-  suggestions: CorrectionSuggestion[]
-}
+// Re-export shared types so existing imports from CorrectionPopup still work
+export type { CorrectionEntry, CorrectionSuggestion }
+export { addToDictionary, isInDictionary }
 
 export interface TypewisePluginState {
   corrections: CorrectionEntry[]
@@ -73,59 +69,6 @@ interface TypewiseOptions {
 // ─── Plugin key (exported for external access) ──────────────────────────────
 
 export const typewisePluginKey = new PluginKey<TypewisePluginState>("typewise")
-
-// ─── API helper ──────────────────────────────────────────────────────────────
-
-async function typewisePost(
-  baseUrl: string,
-  path: string,
-  body: Record<string, unknown>,
-  token?: string
-): Promise<any> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (token) headers["Authorization"] = `Bearer ${token}`
-
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`Typewise API ${path}: ${res.status}`)
-  return res.json()
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-let correctionIdCounter = 0
-function nextCorrectionId(): string {
-  return `tw-c-${++correctionIdCounter}`
-}
-
-// ─── User dictionary (never-correct list) ────────────────────────────────────
-
-const DICT_STORAGE_KEY = "typewise-user-dictionary"
-
-function loadDictionary(): Set<string> {
-  try {
-    const stored = localStorage.getItem(DICT_STORAGE_KEY)
-    return new Set(stored ? JSON.parse(stored) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-let userDictionary = loadDictionary()
-
-export function addToDictionary(word: string): void {
-  userDictionary.add(word.toLowerCase())
-  try {
-    localStorage.setItem(DICT_STORAGE_KEY, JSON.stringify([...userDictionary]))
-  } catch { /* quota exceeded — ignore */ }
-}
-
-export function isInDictionary(word: string): boolean {
-  return userDictionary.has(word.toLowerCase())
-}
 
 function getTextBeforeCursor(state: EditorState): { text: string; blockStart: number } {
   const { $from } = state.selection
@@ -393,7 +336,6 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
 
     // ── API: grammar correction ──────────────────────────────────────
 
-    const SENTENCE_END_PUNCTUATION = [".", "!", "?"]
     const SENTENCE_END_RE = /([.!?])(\s|\n)|(?<![.!?\n *])\s*\n/
 
     /**
@@ -449,14 +391,6 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       if (text.trim().length < 3) return null
 
       return { text, from: blockStart + sentenceStart, to: blockStart + sentenceEnd }
-    }
-
-    /**
-     * Check if a sentence is complete (ends with punctuation).
-     */
-    function isSentenceComplete(text: string): boolean {
-      const trimmed = text.trimEnd()
-      return SENTENCE_END_PUNCTUATION.some(p => trimmed.endsWith(p))
     }
 
     async function checkGrammar(sentenceText: string, sentenceFrom: number, fullText: string) {

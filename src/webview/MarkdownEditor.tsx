@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
 import { TextSelection } from "@tiptap/pm/state"
 import { createPortal } from "react-dom"
@@ -81,6 +81,14 @@ import "@/components/tiptap-templates/notion-like/notion-like-editor.scss"
 // --- Typewise ---
 import { TypewiseIntegration } from "./extensions/TypewiseIntegration"
 import { CorrectionPopup } from "./components/CorrectionPopup"
+
+// --- Source Editor ---
+import { SourceEditor, type SourceEditorHandle } from "./components/SourceEditor"
+import { SourceTocSidebar } from "./components/SourceTocSidebar"
+import { SourceCorrectionPopup } from "./components/SourceCorrectionPopup"
+import { cmTypewise } from "./extensions/codemirror-typewise"
+import { markdownLinter } from "./extensions/codemirror-markdown-lint"
+import { lintGutter } from "@codemirror/lint"
 
 // --- VS Code bridge ---
 import { vscode } from "./vscodeApi"
@@ -318,8 +326,21 @@ function MarkdownEditorInner() {
   const [sourceMode, setSourceMode] = useState(false)
   const [sourceContent, setSourceContent] = useState("")
   const sourceContentOriginal = useRef("")
+  const sourceEditorRef = useRef<SourceEditorHandle>(null)
+  const [sourceEditorView, setSourceEditorView] = useState<import("@codemirror/view").EditorView | null>(null)
 
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
+
+  const sourceEditorExtensions = useMemo(() => [
+    ...cmTypewise({
+      apiToken: typewiseToken,
+      languages: ["en", "de", "fr"],
+      autocorrect: true,
+      predictions: true,
+    }),
+    markdownLinter,
+    lintGutter(),
+  ], [typewiseToken])
 
   // Buffer of recently sent content so we can detect echoed updates
   // (VS Code sends the content back after writing it to disk).
@@ -768,23 +789,25 @@ function MarkdownEditorInner() {
         <NotionEditorHeader sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />
 
         {showSource ? (
-          <div className="raw-markdown-container">
-            <textarea
-              className="raw-markdown-editor"
-              value={sourceContent}
-              onChange={(e) => {
-                const val = e.target.value
-                setSourceContent(val)
-
-                // Sync back to VS Code with debounce
-                if (debounceTimer.current) clearTimeout(debounceTimer.current)
-                debounceTimer.current = setTimeout(() => {
-                  vscode.postMessage({ type: "edit", content: val })
-                }, 150)
-              }}
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
+          <div className="notion-like-editor-layout" data-source-mode>
+            <div className="notion-like-editor-content-column">
+              <SourceEditor
+                ref={sourceEditorRef}
+                value={sourceContent}
+                onChange={(val) => {
+                  setSourceContent(val)
+                  if (debounceTimer.current) clearTimeout(debounceTimer.current)
+                  debounceTimer.current = setTimeout(() => {
+                    vscode.postMessage({ type: "edit", content: val })
+                  }, 150)
+                }}
+                extensions={sourceEditorExtensions}
+                onViewReady={setSourceEditorView}
+              />
+            </div>
+            <SourceTocSidebar
+              sourceContent={sourceContent}
+              editorView={sourceEditorView}
             />
           </div>
         ) : (
@@ -823,6 +846,7 @@ function MarkdownEditorInner() {
       </EditorContext.Provider>
       {!sourceMode && <CorrectionPopup editor={editor} />}
       {!sourceMode && <TableConfigCellPopover editor={editor} />}
+      {sourceMode && <SourceCorrectionPopup editorView={sourceEditorView} />}
     </div>
   )
 }

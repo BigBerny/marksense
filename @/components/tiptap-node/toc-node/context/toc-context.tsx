@@ -95,14 +95,24 @@ const doNavigateToHeading = (
   item: TableOfContentDataItem,
   topOffset: number
 ) => {
-  if (!item.dom || typeof window === "undefined") return
+  if (typeof window === "undefined") return
+
+  // The extension's dom reference may be a Text node (from domAtPos) rather
+  // than the heading Element.  Find the heading by its id attribute instead,
+  // which is always set by the TableOfContents extension.
+  const domRef: Node | null = item.dom
+  const el =
+    document.getElementById(item.id) ??
+    (domRef instanceof HTMLElement ? domRef : domRef?.parentElement ?? null)
+
+  if (!el) return
 
   // Find the scroll container (the nearest ancestor with overflow scroll/auto)
   const container =
-    item.dom.closest(".notion-like-editor-wrapper") as HTMLElement | null
+    el.closest(".notion-like-editor-wrapper") as HTMLElement | null
 
   if (container) {
-    const rect = item.dom.getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
     const containerRect = container.getBoundingClientRect()
     const targetScroll =
       container.scrollTop + rect.top - containerRect.top - topOffset
@@ -110,7 +120,7 @@ const doNavigateToHeading = (
     container.scrollTo({ top: targetScroll, behavior: "auto" })
   } else {
     // Fallback: use scrollIntoView
-    item.dom.scrollIntoView({ behavior: "auto", block: "start" })
+    el.scrollIntoView({ behavior: "auto", block: "start" })
   }
 }
 

@@ -63,33 +63,49 @@ body,
 }
 
 .notion-like-editor-layout {
-  --content-width: minmax(auto, 708px);
-  --margin-width: minmax(96px, 1fr);
+  --content-width: minmax(auto, 780px);
+  --margin-left-width: minmax(32px, 1fr);
+  --margin-right-width: minmax(64px, 1fr);
 
   display: grid;
   grid-template-columns:
-    [full-start] var(--margin-left-width, var(--margin-width))
+    [full-start] var(--margin-left-width)
     [content-start] var(--content-width)
-    [content-end] var(--margin-right-width, var(--margin-width))
+    [content-end] var(--margin-right-width)
     [full-end];
   width: 100%;
   position: relative;
 
   .wide-mode & {
     --content-width: minmax(0, 1200px);
-    --margin-width: minmax(32px, 1fr);
+    --margin-left-width: minmax(24px, 1fr);
+    --margin-right-width: minmax(32px, 1fr);
 
-    // Reserve space for the TOC sidebar in the right margin at wide viewports
     @media screen and (min-width: 1280px) {
       --margin-right-width: minmax(15rem, 1fr);
     }
+  }
+
+  // Source editor needs more horizontal space than rich text
+  &[data-source-mode] {
+    --content-width: minmax(auto, 960px);
+    --margin-left-width: minmax(24px, 1fr);
+    --margin-right-width: minmax(32px, 1fr);
+  }
+
+  .wide-mode &[data-source-mode] {
+    --content-width: minmax(0, 1fr);
+    --margin-left-width: minmax(16px, 48px);
+    --margin-right-width: minmax(16px, 48px);
+    overflow: hidden;
   }
 }
 
 // Mobile: single column layout
 @media screen and (max-width: 1024px) {
   .notion-like-editor-layout {
-    --margin-width: minmax(1rem, 1fr);
+    --margin-left-width: minmax(1rem, 1fr);
+    --margin-right-width: minmax(1rem, 1fr);
   }
 }
 
@@ -104,6 +120,7 @@ body,
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0;
   min-height: 0;
 }
 
