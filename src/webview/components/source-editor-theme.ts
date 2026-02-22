@@ -12,7 +12,7 @@ export const marksenseTheme = EditorView.theme({
     fontSize: "13.5px",
     fontFamily: '"SFMono-Regular", "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace',
     height: "100%",
-    backgroundColor: "var(--tt-bg-color, #fff)",
+    backgroundColor: "transparent",
     color: "var(--cm-text, var(--tt-gray-light-900))",
   },
   ".cm-content": {
@@ -29,7 +29,7 @@ export const marksenseTheme = EditorView.theme({
     backgroundColor: "var(--tt-selection-color, rgba(90, 99, 240, 0.13))",
   },
   ".cm-gutters": {
-    backgroundColor: "var(--tt-bg-color, #fff)",
+    backgroundColor: "transparent",
     color: "var(--cm-gutter-text, var(--tt-gray-light-400))",
     border: "none",
     paddingLeft: "1rem",

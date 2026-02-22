@@ -1,8 +1,8 @@
-import { WidthToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-width-toggle"
+import { useEffect, useRef, useState } from "react"
+import { useWidthToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-width-toggle"
 
 // --- UI Primitives ---
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
-import { Separator } from "@/components/tiptap-ui-primitive/separator"
 import { Button } from "@/components/tiptap-ui-primitive/button"
 
 // --- Diff ---
@@ -11,9 +11,9 @@ import { useDiff } from "../../../../src/webview/DiffContext"
 // --- Styles ---
 import "@/components/tiptap-templates/notion-like/notion-like-editor-header.scss"
 
-// ─── Source-view icon (code brackets) ────────────────────────────────────────
+// ─── Icons ───────────────────────────────────────────────────────────────────
 
-function SourceViewIcon({ className }: { className?: string }) {
+function EllipsisIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -21,35 +21,162 @@ function SourceViewIcon({ className }: { className?: string }) {
       width="16"
       height="16"
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
     >
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="5" cy="12" r="1.5" />
+      <circle cx="19" cy="12" r="1.5" />
     </svg>
   )
 }
 
-/** Git-diff style icon: file with +/- indicators */
-function DiffToggleIcon({ className }: { className?: string }) {
+function CheckIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
       xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="currentColor"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <path d="M2 3.5A1.5 1.5 0 013.5 2h5.586a1.5 1.5 0 011.06.44l2.415 2.414A1.5 1.5 0 0113 5.914V12.5a1.5 1.5 0 01-1.5 1.5h-8A1.5 1.5 0 012 12.5v-9zm1.5-.5a.5.5 0 00-.5.5v9a.5.5 0 00.5.5h8a.5.5 0 00.5-.5V6H9.5A1.5 1.5 0 018 4.5V2H3.5zM9 2.707V4.5a.5.5 0 00.5.5h1.793L9 2.707z" />
-      <path d="M5.5 7a.5.5 0 01.5.5V8h.5a.5.5 0 010 1H6v.5a.5.5 0 01-1 0V9h-.5a.5.5 0 010-1H5v-.5a.5.5 0 01.5-.5z" />
-      <path d="M9 9.5a.5.5 0 01.5-.5h1a.5.5 0 010 1h-1a.5.5 0 01-.5-.5z" />
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   )
 }
+
+// ─── Mode toggle (segmented control) ─────────────────────────────────────────
+
+function ModeToggle({ sourceMode, onToggle }: { sourceMode: boolean; onToggle: () => void }) {
+  return (
+    <div className="mode-toggle" role="radiogroup" aria-label="Editor mode">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!sourceMode}
+        className="mode-toggle-segment"
+        data-active={!sourceMode ? "" : undefined}
+        onClick={() => sourceMode && onToggle()}
+      >
+        Visual
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={sourceMode}
+        className="mode-toggle-segment"
+        data-active={sourceMode ? "" : undefined}
+        onClick={() => !sourceMode && onToggle()}
+      >
+        Markdown
+      </button>
+    </div>
+  )
+}
+
+// ─── Settings menu (custom dropdown) ─────────────────────────────────────────
+
+let globalSettingsOpen = false
+
+function SettingsMenu({
+  sourceMode,
+  onToggleSourceMode,
+}: {
+  sourceMode: boolean
+  onToggleSourceMode?: () => void
+}) {
+  const { isWide, toggle: toggleWidth } = useWidthToggle()
+  const [open, setOpen] = useState(globalSettingsOpen)
+  const [wasAlreadyOpen] = useState(globalSettingsOpen)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    globalSettingsOpen = open
+  }, [open])
+
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (open && containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (open && e.key === "Escape") {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleDocumentClick)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentClick)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [open])
+
+  const handleModeToggle = () => {
+    if (!onToggleSourceMode) return
+    globalSettingsOpen = true
+    onToggleSourceMode()
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: "relative", display: "inline-flex" }}>
+      <Button
+        type="button"
+        data-style="ghost"
+        aria-label="Editor settings"
+        tooltip="Settings"
+        showTooltip={!open}
+        onClick={() => setOpen(!open)}
+        data-active-state={open ? "on" : undefined}
+      >
+        <EllipsisIcon className="tiptap-button-icon" />
+      </Button>
+
+      {open && (
+        <div
+          className="editor-settings-menu tiptap-popover"
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: "6px",
+            zIndex: 100,
+            transformOrigin: "top right",
+            animation: wasAlreadyOpen 
+              ? "none" 
+              : "fadeIn 150ms cubic-bezier(0.16, 1, 0.3, 1), zoomIn 150ms cubic-bezier(0.16, 1, 0.3, 1)"
+          }}
+        >
+          {onToggleSourceMode && (
+            <div className="editor-settings-row">
+              <span className="editor-settings-label">Mode</span>
+              <ModeToggle sourceMode={sourceMode} onToggle={handleModeToggle} />
+            </div>
+          )}
+          <div className="editor-settings-row">
+            <span className="editor-settings-label">Full width</span>
+            <button
+              type="button"
+              className="editor-settings-check"
+              role="switch"
+              aria-checked={isWide}
+              onClick={toggleWidth}
+            >
+              {isWide && <CheckIcon />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Public components ───────────────────────────────────────────────────────
 
 export interface EditorActionsProps {
   sourceMode?: boolean
@@ -61,39 +188,18 @@ export function EditorActions({ sourceMode, onToggleSourceMode }: EditorActionsP
 
   return (
     <>
-      {isGitRepo && (
-        <Button
-          onClick={openDiffEditor}
-          tooltip="Show Changes"
-          data-style="ghost"
-          aria-label="Open diff editor"
-          style={{ position: "relative" }}
-        >
-          <DiffToggleIcon className="tiptap-button-icon" />
-          {changeCount > 0 && (
-            <span className="diff-badge">
-              {changeCount > 99 ? "99+" : changeCount}
-            </span>
-          )}
-        </Button>
-      )}
-
-      {onToggleSourceMode && (
-        <Button
+      {isGitRepo && changeCount > 0 && (
+        <button
           type="button"
-          data-style="ghost"
-          aria-label={sourceMode ? "Switch to rich editor" : "View source"}
-          tooltip={sourceMode ? "Switch to rich editor" : "View source"}
-          onClick={onToggleSourceMode}
-          data-active-state={sourceMode ? "on" : undefined}
+          className="changes-link"
+          onClick={openDiffEditor}
+          aria-label="Show changes"
         >
-          <SourceViewIcon className="tiptap-button-icon" />
-        </Button>
+          {changeCount} {changeCount === 1 ? "change" : "changes"}
+        </button>
       )}
 
-      <Separator />
-
-      <WidthToggle />
+      <SettingsMenu sourceMode={!!sourceMode} onToggleSourceMode={onToggleSourceMode} />
     </>
   )
 }

@@ -58,14 +58,15 @@ body,
   display: flex;
   flex-direction: column;
   height: 100vh;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-inline: 0.5rem;
 }
 
 .notion-like-editor-layout {
-  --content-width: minmax(auto, 780px);
-  --margin-left-width: minmax(16px, 0.45fr);
-  --margin-right-width: minmax(48px, 1fr);
+  --content-width: minmax(0, 780px);
+  --margin-left-width: minmax(16px, 0.3fr);
+  --margin-right-width: minmax(32px, 1fr);
 
   display: grid;
   grid-template-columns:
@@ -77,7 +78,7 @@ body,
   position: relative;
 
   .wide-mode & {
-    --content-width: minmax(0, 1200px);
+    --content-width: minmax(0, 1000px);
     --margin-left-width: minmax(24px, 0.6fr);
     --margin-right-width: minmax(32px, 1fr);
 
@@ -88,18 +89,18 @@ body,
 
   // Source editor needs more horizontal space than rich text
   &[data-source-mode] {
-    --content-width: minmax(auto, 960px);
+    --content-width: minmax(0, 960px);
     --margin-left-width: minmax(16px, 0.3fr);
     --margin-right-width: minmax(32px, 1fr);
   }
 
   .wide-mode &[data-source-mode] {
     --content-width: minmax(0, 1fr);
-    --margin-left-width: minmax(16px, 0.3fr);
-    --margin-right-width: minmax(32px, 0.6fr);
+    --margin-left-width: 16px;
+    --margin-right-width: 32px;
 
     @media screen and (min-width: 1280px) {
-      --margin-right-width: minmax(15rem, 0.6fr);
+      --margin-right-width: 15rem;
     }
   }
 }

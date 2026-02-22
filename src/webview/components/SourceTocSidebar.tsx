@@ -57,7 +57,9 @@ export function SourceTocSidebar({ sourceContent, editorView, actions }: SourceT
   const headings = useMemo(() => parseHeadings(sourceContent), [sourceContent])
   const normalizedDepths = useMemo(() => normalizeDepths(headings), [headings])
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set())
   const lastNavTimeRef = useRef(0)
+  const prevVisibleKeyRef = useRef("")
 
   const depthById = useMemo(() => {
     const map = new Map<string, number>()
@@ -67,40 +69,62 @@ export function SourceTocSidebar({ sourceContent, editorView, actions }: SourceT
     return map
   }, [headings, normalizedDepths])
 
-  // Track active heading based on scroll position
+  // Track active heading and on-screen headings based on scroll position.
+  // The actual scroll container is .notion-like-editor-wrapper (not .cm-scroller),
+  // so we listen there and use viewport coordinates to determine position.
   useEffect(() => {
     if (!editorView || headings.length === 0) return
+
+    const wrapper = editorView.dom.closest(".notion-like-editor-wrapper") as HTMLElement | null
+    if (!wrapper) return
 
     const checkActiveHeading = () => {
       if (Date.now() - lastNavTimeRef.current < 200) return
 
-      const scrollTop = editorView.scrollDOM.scrollTop
-      const viewportTop = editorView.documentTop
+      const wrapperRect = wrapper.getBoundingClientRect()
+      const { from: viewportFrom } = editorView.viewport
 
       let current: SourceHeading | null = null
+      const onScreen: string[] = []
+
       for (const heading of headings) {
         try {
           const line = editorView.state.doc.line(heading.lineNumber)
-          const coords = editorView.coordsAtPos(line.from)
-          if (coords && coords.top - viewportTop <= scrollTop + 60) {
+          if (line.from < viewportFrom) {
             current = heading
+          } else {
+            const coords = editorView.coordsAtPos(line.from)
+            if (coords) {
+              if (coords.top <= wrapperRect.top + 60) {
+                current = heading
+              }
+              if (coords.top >= wrapperRect.top && coords.top <= wrapperRect.bottom) {
+                onScreen.push(heading.id)
+              }
+            }
           }
         } catch { /* line may not exist */ }
       }
 
       setActiveId(current?.id ?? headings[0]?.id ?? null)
+
+      const key = onScreen.join(",")
+      if (key !== prevVisibleKeyRef.current) {
+        prevVisibleKeyRef.current = key
+        setVisibleIds(new Set(onScreen))
+      }
     }
 
     checkActiveHeading()
 
-    const scroller = editorView.scrollDOM
-    scroller.addEventListener("scroll", checkActiveHeading, { passive: true })
-    return () => scroller.removeEventListener("scroll", checkActiveHeading)
+    wrapper.addEventListener("scroll", checkActiveHeading, { passive: true })
+    return () => wrapper.removeEventListener("scroll", checkActiveHeading)
   }, [editorView, headings])
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, heading: SourceHeading) => {
       e.preventDefault()
+      ;(e.currentTarget as HTMLElement).blur()
       if (!editorView) return
 
       lastNavTimeRef.current = Date.now()
@@ -132,7 +156,6 @@ export function SourceTocSidebar({ sourceContent, editorView, actions }: SourceT
     [editorView]
   )
 
-  // Need to import EditorView effects at module scope
   const hasHeadings = headings.length > 0
 
   return (
@@ -144,15 +167,13 @@ export function SourceTocSidebar({ sourceContent, editorView, actions }: SourceT
             {headings.map((item) => {
               const depth = depthById.get(item.id) ?? 1
               const isActive = activeId === item.id
+              const proximity = isActive ? 100 : visibleIds.has(item.id) ? 25 : 0
               return (
                 <div
                   key={item.id}
-                  className={cn(
-                    "toc-sidebar-progress-line",
-                    isActive && "toc-sidebar-progress-line--active"
-                  )}
+                  className="toc-sidebar-progress-line"
                   data-depth={depth}
-                  style={{ "--toc-depth": depth } as React.CSSProperties}
+                  style={{ "--toc-depth": depth, "--toc-proximity": `${proximity}%` } as React.CSSProperties}
                 />
               )
             })}

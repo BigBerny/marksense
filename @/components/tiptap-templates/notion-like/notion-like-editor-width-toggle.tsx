@@ -26,10 +26,9 @@ function WidthToggleIcon({ className }: { className?: string }) {
   )
 }
 
-export function WidthToggle() {
+export function useWidthToggle() {
   const [isWide, setIsWide] = useState(() => {
     const state = vscode.getState() as Record<string, unknown> | undefined
-    // If the user has toggled width before, use that; otherwise fall back to the setting
     if (state && typeof state.wideMode === "boolean") {
       return state.wideMode
     }
@@ -48,6 +47,12 @@ export function WidthToggle() {
       return next
     })
   }
+
+  return { isWide, toggle } as const
+}
+
+export function WidthToggle() {
+  const { isWide, toggle } = useWidthToggle()
 
   return (
     <Button

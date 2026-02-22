@@ -107,7 +107,7 @@ export const RawText = Node.create({
       .replace(/>/g, "&gt;")
       .replace(/\n/g, "&#10;")
       .replace(/\r/g, "&#13;")
-    return `<div data-type="raw-text" data-tag="${encoded}"></div>\n\n`
+    return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   },
 
   addProseMirrorPlugins() {

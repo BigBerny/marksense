@@ -66,43 +66,64 @@ export function TocSidebar({
     return map
   }, [visibleHeadings, normalizedDepths])
 
-  // Scroll-based highlighted heading (using isActive)
-  const highlightedHeading = useMemo<TableOfContentDataItem | null>(
-    () => [...headingList].reverse().find((h) => h.isActive) ?? null,
-    [headingList]
-  )
+  // Scroll-based active heading and on-screen tracking via .notion-like-editor-wrapper.
+  const [scrollActiveId, setScrollActiveId] = useState<string | null>(null)
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set())
+  const prevVisibleKeyRef = useRef("")
 
-  // Selection-based active heading (isActive)
-  const selectionActiveId = useMemo(
-    () => headingList.find((h) => h.isActive)?.id ?? null,
-    [headingList]
-  )
+  useEffect(() => {
+    const container = document.querySelector(".notion-like-editor-wrapper") as HTMLElement | null
+    if (!container || headingList.length === 0) return
+
+    const checkActiveHeading = () => {
+      if (Date.now() - lastNavTimeRef.current < 100) return
+
+      const containerRect = container.getBoundingClientRect()
+      const containerTop = containerRect.top + topOffset
+
+      let current: TableOfContentDataItem | null = null
+      const onScreen: string[] = []
+
+      for (const heading of headingList) {
+        const el = document.getElementById(heading.id)
+        if (!el) continue
+        const elTop = el.getBoundingClientRect().top
+        if (elTop <= containerTop + 60) {
+          current = heading
+        }
+        if (elTop >= containerRect.top && elTop <= containerRect.bottom) {
+          onScreen.push(heading.id)
+        }
+      }
+
+      setScrollActiveId(current?.id ?? headingList[0]?.id ?? null)
+
+      const key = onScreen.join(",")
+      if (key !== prevVisibleKeyRef.current) {
+        prevVisibleKeyRef.current = key
+        setVisibleIds(new Set(onScreen))
+      }
+    }
+
+    checkActiveHeading()
+
+    container.addEventListener("scroll", checkActiveHeading, { passive: true })
+    return () => container.removeEventListener("scroll", checkActiveHeading)
+  }, [headingList, topOffset])
 
   // Decide which heading is "active" for UI purposes
   const activeContentId = useMemo(() => {
-    // 1. User clicked something: manual always wins.
-    if (manualActiveId) {
-      return manualActiveId
-    }
-
-    // 2. Scroll-highlighted heading (extension scroll logic).
-    if (highlightedHeading?.id) {
-      return highlightedHeading.id
-    }
-
-    // 3. Selection-based active heading (cursor).
-    if (selectionActiveId) {
-      return selectionActiveId
-    }
-
-    // 4. Fallback to first heading.
+    if (manualActiveId) return manualActiveId
+    if (scrollActiveId) return scrollActiveId
     return headingList[0]?.id
-  }, [manualActiveId, highlightedHeading, selectionActiveId, headingList])
+  }, [manualActiveId, scrollActiveId, headingList])
 
   const handleContentClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, item: TableOfContentDataItem) => {
       e.preventDefault()
       e.stopPropagation()
+
+      ;(e.currentTarget as HTMLElement).blur()
 
       setManualActiveId(item.id)
       lastNavTimeRef.current = Date.now()
@@ -166,16 +187,14 @@ export function TocSidebar({
             {visibleHeadings.map((item) => {
               const depth = depthById.get(item.id) ?? 1
               const isActive = activeContentId === item.id
+              const proximity = isActive ? 100 : visibleIds.has(item.id) ? 25 : 0
 
               return (
                 <div
                   key={item.id}
-                  className={cn(
-                    "toc-sidebar-progress-line",
-                    isActive && "toc-sidebar-progress-line--active"
-                  )}
+                  className="toc-sidebar-progress-line"
                   data-depth={depth}
-                  style={{ "--toc-depth": depth } as React.CSSProperties}
+                  style={{ "--toc-depth": depth, "--toc-proximity": `${proximity}%` } as React.CSSProperties}
                 />
               )
             })}

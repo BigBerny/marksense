@@ -106,6 +106,7 @@ import {
   unwrapJsxComponents,
   type FrontmatterEntry,
 } from "./frontmatterUtils"
+import { extractTableBlocks, preserveTableFormatting } from "./tableFormatUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
 import { RawPrefixBlock } from "./components/RawPrefixBlock"
 import { RawText } from "./extensions/RawTextExtension"
@@ -304,6 +305,7 @@ function MarkdownEditorInner() {
     return {
       ...parsed,
       rawPrefix,
+      strippedBody,
       processedBody: resolveImageUrls(wrapped, documentDirWebviewUri),
     }
   })
@@ -322,6 +324,11 @@ function MarkdownEditorInner() {
   // Preserve leading raw blocks that Tiptap cannot faithfully round-trip.
   const rawPrefixRef = useRef(initialParsed.rawPrefix)
   const [rawPrefix, setRawPrefix] = useState(initialParsed.rawPrefix)
+  // Preserve original table formatting so that unmodified tables don't
+  // produce formatting-only diffs when tiptap re-serialises the document.
+  const originalTablesRef = useRef<string[]>(
+    extractTableBlocks(initialParsed.strippedBody)
+  )
 
   const [sourceMode, setSourceMode] = useState(() => {
     const state = vscode.getState() as Record<string, unknown> | undefined
@@ -466,12 +473,13 @@ function MarkdownEditorInner() {
         const md = ed.getMarkdown()
         // Restore JSX blocks, leading HTML blocks, convert webview URIs
         // to relative paths, and prepend frontmatter before syncing.
+        const bodyWithRelPaths = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
         const restoredBody = restoreLeadingHtml(
           rawPrefixRef.current,
-          unresolveImageUrls(
-            unwrapJsxComponents(md),
-            documentDirWebviewUri
-          )
+          preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
         const full = serializeFrontmatter(
           frontmatterRef.current,
@@ -481,7 +489,7 @@ function MarkdownEditorInner() {
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
-          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value)
+          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value!)
         }
         vscode.postMessage({ type: "edit", content: full })
       }, 150)
@@ -602,6 +610,7 @@ function MarkdownEditorInner() {
           extractLeadingHtml(parsed.body)
         rawPrefixRef.current = newRawPrefix
         setRawPrefix(newRawPrefix)
+        originalTablesRef.current = extractTableBlocks(strippedBody)
 
         const processedBody = resolveImageUrls(
           wrapJsxComponents(strippedBody),
@@ -670,12 +679,13 @@ function MarkdownEditorInner() {
       // with relative image paths (not webview URIs).
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
+      const bodyWithRelPaths = unresolveImageUrls(
+        unwrapJsxComponents(md),
+        documentDirWebviewUri
+      )
       const restoredBody = restoreLeadingHtml(
         rawPrefixRef.current,
-        unresolveImageUrls(
-          unwrapJsxComponents(md),
-          documentDirWebviewUri
-        )
+        preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
       )
       const full = serializeFrontmatter(
         frontmatterRef.current,
@@ -692,6 +702,7 @@ function MarkdownEditorInner() {
           extractLeadingHtml(parsed.body)
         rawPrefixRef.current = newRawPrefix
         setRawPrefix(newRawPrefix)
+        originalTablesRef.current = extractTableBlocks(strippedBody)
         const processedBody = resolveImageUrls(
           wrapJsxComponents(strippedBody),
           documentDirWebviewUri
@@ -732,18 +743,19 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const bodyWithRelPaths = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
         const restoredBody = restoreLeadingHtml(
           rawPrefixRef.current,
-          unresolveImageUrls(
-            unwrapJsxComponents(md),
-            documentDirWebviewUri
-          )
+          preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
         const full = serializeFrontmatter(entries, restoredBody, null)
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
-          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value)
+          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value!)
         }
         vscode.postMessage({ type: "edit", content: full })
       }, 150)
@@ -763,12 +775,13 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const bodyWithRelPaths = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
         const restoredBody = restoreLeadingHtml(
           newPrefix,
-          unresolveImageUrls(
-            unwrapJsxComponents(md),
-            documentDirWebviewUri
-          )
+          preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
         const full = serializeFrontmatter(
           frontmatterRef.current,
@@ -778,7 +791,7 @@ function MarkdownEditorInner() {
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
-          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value)
+          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value!)
         }
         vscode.postMessage({ type: "edit", content: full })
       }, 150)

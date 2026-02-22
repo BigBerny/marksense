@@ -1,5 +1,5 @@
 import type { ViewMutationRecord } from "@tiptap/pm/view"
-import { Table } from "@tiptap/extension-table/table"
+import { Table, renderTableToMarkdown } from "@tiptap/extension-table/table"
 import type {
   TableCellOptions,
   TableHeaderOptions,
@@ -23,6 +23,14 @@ import {
 } from "@/components/tiptap-node/table-node/lib/tiptap-table-utils"
 
 export const TableNode = Table.extend<TableOptions>({
+  renderMarkdown(node: any, h: any) {
+    return renderTableToMarkdown(node, h)
+      .replace(/^\n+/, "")
+      .replace(/\n+$/, "")
+      .replace(/&nbsp;/g, "")
+      .replace(/\u00A0/g, "")
+  },
+
   addProseMirrorPlugins() {
     const isResizable = this.options.resizable && this.editor.isEditable
 

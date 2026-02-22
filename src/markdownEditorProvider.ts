@@ -523,6 +523,7 @@ export class MarkdownEditorProvider
     settings: {
       typewiseToken: string;
       autoSaveDelay: number;
+      defaultFullWidth: boolean;
       documentDirWebviewUri: string;
       isGitRepo: boolean;
     }

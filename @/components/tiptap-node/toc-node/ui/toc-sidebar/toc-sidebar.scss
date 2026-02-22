@@ -79,7 +79,11 @@
     &-line {
       height: 0.125rem;
       border-radius: 0.25rem;
-      background-color: var(--tt-toc-sidebar-line-bg);
+      background-color: color-mix(
+        in srgb,
+        var(--tt-toc-sidebar-line-bg-active) var(--toc-proximity, 0%),
+        var(--tt-toc-sidebar-line-bg)
+      );
       transition: background-color 0.3s ease;
 
       margin-left: calc(
@@ -94,10 +98,6 @@
             (var(--toc-progress-indent) * (var(--toc-depth, 1) - 1))
         )
       );
-
-      &--active {
-        background-color: var(--tt-toc-sidebar-line-bg-active);
-      }
 
       &[data-depth="1"] { --toc-depth: 1; }
       &[data-depth="2"] { --toc-depth: 2; }
@@ -173,12 +173,21 @@
       var(--toc-indent) * (var(--toc-depth, 1) - 1) * var(--toc-depth-factor)
     );
 
+    outline: none;
+
+    &:focus,
+    &:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
     &:hover {
       background-color: var(--tt-toc-sidebar-bg-hover-color);
       color: var(--tt-toc-sidebar-text-hover-color);
     }
 
-    &--active {
+    &--active,
+    &--active:hover {
       color: var(--tt-toc-sidebar-text-active-color);
     }
 
@@ -265,8 +274,6 @@
       max-height: calc(100vh - 10rem);
       padding: 0;
 
-      /* Subtle left border for visual hierarchy */
-      border-left: 1px solid var(--tt-toc-sidebar-border-color);
       padding-left: 0.25rem;
     }
 
@@ -284,7 +291,7 @@
       margin-bottom: 0.75rem;
       padding-bottom: 0.75rem;
       padding-inline: 0.25rem;
-      border-bottom: 1px solid var(--tt-toc-sidebar-border-color);
+      border-bottom: none;
     }
   }
 
