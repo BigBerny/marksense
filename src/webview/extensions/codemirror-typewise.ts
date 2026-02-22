@@ -76,12 +76,38 @@ export const cmTypewiseState = StateField.define<CMTypewiseState>({
         }))
         .filter(c => c.from < c.to)
 
-      // Invalidate corrections whose text changed
+      // Invalidate corrections whose text changed or word was extended
       corrections = corrections.filter(c => {
         if (c.from < 0 || c.to > tr.state.doc.length) return false
         const text = tr.state.sliceDoc(c.from, c.to)
-        return text === c.currentValue
+        if (text !== c.currentValue) return false
+        if (c.to < tr.state.doc.length) {
+          const charAfter = tr.state.sliceDoc(c.to, c.to + 1)
+          if (/\w/.test(charAfter)) return false
+        }
+        if (c.from > 0) {
+          const charBefore = tr.state.sliceDoc(c.from - 1, c.from)
+          if (/\w/.test(charBefore)) return false
+        }
+        return true
       })
+
+      // Invalidate grammar corrections in any edited line/block
+      const editedLines = new Set<number>()
+      tr.changes.iterChangedRanges((fromA, _toA) => {
+        try {
+          const mapped = tr.changes.mapPos(fromA)
+          editedLines.add(tr.state.doc.lineAt(mapped).from)
+        } catch { /* position may be out of range */ }
+      })
+      if (editedLines.size > 0) {
+        corrections = corrections.filter(c => {
+          if (c.source !== "grammar") return true
+          try {
+            return !editedLines.has(tr.state.doc.lineAt(c.from).from)
+          } catch { return true }
+        })
+      }
 
       // Clear prediction on any doc change not from accepting
       if (prediction) {
@@ -284,6 +310,32 @@ function getTextBeforeCursor(state: EditorState): { text: string; blockStart: nu
   return { text: state.sliceDoc(blockStart, pos), blockStart }
 }
 
+function getBlockStartAt(state: EditorState, pos: number): number {
+  const line = state.doc.lineAt(pos)
+  let blockStart = line.from
+  for (let n = line.number - 1; n >= 1; n--) {
+    const prev = state.doc.line(n)
+    if (prev.text.trim() === "") break
+    blockStart = prev.from
+  }
+  return blockStart
+}
+
+function getWordRangeAtPos(state: EditorState, pos: number): { from: number; to: number } | null {
+  if (pos < 0 || pos > state.doc.length) return null
+  const line = state.doc.lineAt(pos)
+  const lineText = line.text
+  const posInLine = pos - line.from
+
+  let wordStart = posInLine
+  let wordEnd = posInLine
+  while (wordStart > 0 && /\w/.test(lineText[wordStart - 1])) wordStart--
+  while (wordEnd < lineText.length && /\w/.test(lineText[wordEnd])) wordEnd++
+
+  if (wordStart === wordEnd) return null
+  return { from: line.from + wordStart, to: line.from + wordEnd }
+}
+
 function getSentenceAtPos(state: EditorState, pos: number): { text: string; from: number; to: number } | null {
   const line = state.doc.lineAt(pos)
   let blockStart = line.from
@@ -343,48 +395,102 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     private predictionRequestId = 0
     private grammarTimer: ReturnType<typeof setTimeout> | null = null
     private grammarAbort: AbortController | null = null
+    private idleSpellTimer: ReturnType<typeof setTimeout> | null = null
     private lastInput = ""
 
     update(update: ViewUpdate) {
-      if (!update.docChanged) return
+      if (update.docChanged) {
+        // Detect typed character
+        let insertedText = ""
+        update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
+          insertedText += inserted.toString()
+        })
 
-      // Detect typed character
-      let insertedText = ""
-      update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
-        insertedText += inserted.toString()
-      })
+        if (insertedText.length > 0) {
+          this.lastInput = insertedText
+          const lastChar = insertedText[insertedText.length - 1]
 
-      if (insertedText.length === 0) return
+          // Check final word on word boundary (uses local SDK)
+          if (opts.autocorrect && typewiseSdk.ready && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
+            const { text, blockStart } = getTextBeforeCursor(update.state)
+            if (text.trim().length >= 2) {
+              this.checkFinalWord(update.view, text, blockStart)
+            }
+          }
 
-      this.lastInput = insertedText
-      const lastChar = insertedText[insertedText.length - 1]
+          // Grammar (uses cloud API — needs apiToken)
+          if (opts.autocorrect && opts.apiToken) {
+            const isNewline = insertedText.includes("\n")
 
-      // Check final word on word boundary (uses local SDK)
-      if (opts.autocorrect && typewiseSdk.ready && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
-        const { text, blockStart } = getTextBeforeCursor(update.state)
-        if (text.trim().length >= 2) {
-          this.checkFinalWord(update.view, text, blockStart)
+            // Enter key: immediate grammar check on the paragraph we just left
+            if (isNewline) {
+              const pos = update.state.selection.main.head
+              const curLine = update.state.doc.lineAt(pos)
+              if (curLine.number > 1) {
+                const prevLine = update.state.doc.line(curLine.number - 1)
+                const blockStart = getBlockStartAt(update.state, prevLine.from)
+                const text = update.state.sliceDoc(blockStart, prevLine.to)
+                if (text.trim().length >= 3) {
+                  const fullText = update.state.sliceDoc(0, prevLine.to)
+                  this.checkGrammar(update.view, text, blockStart, fullText)
+                }
+              }
+            }
+
+            // Sentence-end punctuation: fast grammar schedule (800ms)
+            const isSentenceEnd = SENTENCE_END_PUNCTUATION.includes(lastChar) ||
+              (lastChar === " " && update.state.selection.main.head > 0 &&
+                SENTENCE_END_PUNCTUATION.includes(
+                  update.state.sliceDoc(update.state.selection.main.head - 2, update.state.selection.main.head - 1)
+                ))
+
+            if (isSentenceEnd) {
+              this.scheduleGrammar(update.view, 800)
+            } else {
+              this.scheduleGrammar(update.view, 2000)
+            }
+          }
+
+          // Schedule prediction (uses local SDK)
+          if (opts.predictions && typewiseSdk.ready) {
+            this.schedulePrediction(update.view)
+          }
         }
       }
 
-      // Grammar on sentence end (uses cloud API — needs apiToken)
-      if (opts.autocorrect && opts.apiToken) {
-        const isSentenceEnd = SENTENCE_END_PUNCTUATION.includes(lastChar) ||
-          (lastChar === " " && update.state.selection.main.head > 0 &&
-            SENTENCE_END_PUNCTUATION.includes(
-              update.state.sliceDoc(update.state.selection.main.head - 2, update.state.selection.main.head - 1)
-            ))
-
-        if (isSentenceEnd) {
-          this.scheduleGrammar(update.view, 800)
-        } else {
-          this.scheduleGrammar(update.view, 2000)
+      // ── Spell-check when cursor moves to a different word ─────
+      if (opts.autocorrect && typewiseSdk.ready) {
+        const prevAnchor = update.startState.selection.main.head
+        const newAnchor = update.state.selection.main.head
+        if (prevAnchor !== newAnchor) {
+          const prevWord = getWordRangeAtPos(update.startState, prevAnchor)
+          const newWord = getWordRangeAtPos(update.state, newAnchor)
+          const leftWord = prevWord && (!newWord || newWord.from !== prevWord.from)
+          if (leftWord) {
+            const blockStart = getBlockStartAt(update.startState, prevWord.from)
+            const textUpToWord = update.startState.sliceDoc(blockStart, prevWord.to)
+            if (textUpToWord.trim().length >= 2) {
+              this.checkFinalWord(update.view, textUpToWord + " ", blockStart)
+            }
+          }
         }
       }
 
-      // Schedule prediction (uses local SDK)
-      if (opts.predictions && typewiseSdk.ready) {
-        this.schedulePrediction(update.view)
+      // ── Idle spell-check: check current word after 5 s ────────
+      if (this.idleSpellTimer) clearTimeout(this.idleSpellTimer)
+      if (opts.autocorrect && typewiseSdk.ready) {
+        const view = update.view
+        this.idleSpellTimer = setTimeout(() => {
+          const state = view.state
+          const wordRange = getWordRangeAtPos(state, state.selection.main.head)
+          if (wordRange) {
+            const blockStart = getBlockStartAt(state, wordRange.from)
+            const textUpToWord = state.sliceDoc(blockStart, wordRange.to)
+            if (textUpToWord.trim().length >= 2) {
+              this.checkFinalWord(view, textUpToWord + " ", blockStart)
+            }
+          }
+        }, 5000)
       }
     }
 
@@ -607,6 +713,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     destroy() {
       if (this.predictionTimer) clearTimeout(this.predictionTimer)
       if (this.grammarTimer) clearTimeout(this.grammarTimer)
+      if (this.idleSpellTimer) clearTimeout(this.idleSpellTimer)
     }
   })
 }

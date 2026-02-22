@@ -184,12 +184,17 @@ class TypewiseSdkService {
     after?: string,
   ): Promise<SdkPredictionResult | null> {
     if (!this._ready || this._failed) return null
+
+    const lang = language || await this.detectLanguage(before)
+
+    // Only the English prediction model is available; skip predictions
+    // for other languages to avoid showing nonsensical English completions.
+    if (lang !== "en") return null
+
     try {
-      const lang = language || await this.detectLanguage(before)
       const raw = await this.predictions.findPredictions(before, capitalize, lang, after ?? null)
       if (raw == null) return null
       const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
-      // SDK returns "predictions" but our interface uses "prediction_candidates"
       const result: SdkPredictionResult = {
         ...parsed,
         prediction_candidates: parsed.prediction_candidates || parsed.predictions || [],

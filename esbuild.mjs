@@ -198,9 +198,31 @@ function copyTypewiseSdkAssets() {
     `for [${TARGET_LANGUAGES.join(", ")}] from ${modelsDir}`
   );
 
-  // 3. Patch language_modelling_settings.json with fields required by
-  //    the current SDK version but absent in older config files, and fix the 
-  //    English prediction model to the ONNX v4.3 version.
+  // 3a. Patch company_config.json: enable predictions for all target
+  //     languages.  The upstream config only enables predictions for "en";
+  //     our code falls back to the English model for other languages so the
+  //     SDK must not short-circuit before we get a chance to call it.
+  const ccPath = path.join(resourcesDest, "company_config.json");
+  if (fs.existsSync(ccPath)) {
+    try {
+      const cc = JSON.parse(fs.readFileSync(ccPath, "utf-8"));
+      let ccPatched = false;
+      for (const lang of TARGET_LANGUAGES) {
+        if (cc.languages?.[lang] && !cc.languages[lang].prediction?.enabled) {
+          cc.languages[lang].prediction = { enabled: true };
+          ccPatched = true;
+        }
+      }
+      if (ccPatched) {
+        fs.writeFileSync(ccPath, JSON.stringify(cc, null, 2) + "\n");
+        console.log("[build]   ~ patched company_config.json (enabled predictions for all target languages)");
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // 3b. Patch language_modelling_settings.json with fields required by
+  //     the current SDK version but absent in older config files, and fix the 
+  //     English prediction model to the ONNX v4.3 version.
   const lmsPath = path.join(resourcesDest, "language_modelling_settings.json");
   if (fs.existsSync(lmsPath)) {
     try {
