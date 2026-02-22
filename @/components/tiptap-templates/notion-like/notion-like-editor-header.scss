@@ -30,13 +30,30 @@
   @media screen and (min-width: 1280px) {
     display: none;
 
-    &[data-raw-mode="true"] {
+    &[data-source-mode="true"] {
       display: flex;
       border-bottom-color: var(--tt-notion-like-editor-header-border);
     }
 
-    &[data-raw-mode="true"] &-actions {
+    &[data-source-mode="true"] &-actions {
       display: flex;
     }
   }
+}
+
+.diff-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  background-color: var(--vscode-badge-background, #007acc);
+  color: var(--vscode-badge-foreground, #fff);
+  pointer-events: none;
 }

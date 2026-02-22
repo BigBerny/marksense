@@ -84,6 +84,42 @@ function getGitHeadContent(filePath: string): string | null {
   }
 }
 
+/**
+ * Count changed lines (added + removed) between HEAD and the working copy.
+ * Returns 0 for untracked files or on any error.
+ */
+function getDiffChangeCount(filePath: string): number {
+  try {
+    const dir = path.dirname(filePath);
+    const repoRoot = execSync("git rev-parse --show-toplevel", {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    const relativePath = path.relative(repoRoot, filePath);
+    const stat = execSync(`git diff --numstat HEAD -- "${relativePath}"`, {
+      cwd: repoRoot,
+      encoding: "utf-8",
+    }).trim();
+    if (!stat) return 0;
+    const parts = stat.split("\t");
+    const added = parseInt(parts[0], 10) || 0;
+    const removed = parseInt(parts[1], 10) || 0;
+    return added + removed;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Virtual document provider for showing HEAD content in VS Code's diff editor.
+ */
+class GitHeadContentProvider implements vscode.TextDocumentContentProvider {
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    // The URI path is the original file path — fetch HEAD content for it
+    return getGitHeadContent(uri.fsPath) || "";
+  }
+}
+
 // ─── Custom document ─────────────────────────────────────────────────
 
 /**
@@ -157,6 +193,15 @@ export class MarkdownEditorProvider
   public static register(
     context: vscode.ExtensionContext
   ): vscode.Disposable {
+    // Register virtual document provider for showing HEAD content in diff editor
+    const gitHeadProvider = new GitHeadContentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerTextDocumentContentProvider(
+        "marksense-head",
+        gitHeadProvider
+      )
+    );
+
     const provider = new MarkdownEditorProvider(context);
     return vscode.window.registerCustomEditorProvider(
       MarkdownEditorProvider.viewType,
@@ -226,6 +271,13 @@ export class MarkdownEditorProvider
       { typewiseToken, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo }
     );
 
+    // Send initial diff count after webview initializes
+    if (isGitRepo) {
+      setTimeout(() => {
+        this.sendDiffCount(document, webviewPanel);
+      }, 500);
+    }
+
     // --- Sync: webview → document model ---
 
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -249,16 +301,19 @@ export class MarkdownEditorProvider
           }, autoSaveDelay);
         }
 
-        // --- Diff support: return the HEAD version of the file ---
-        if (message.type === "requestDiff") {
+        // --- Open VS Code's built-in diff editor ---
+        if (message.type === "openBuiltinDiff") {
           try {
-            const headContent = getGitHeadContent(document.uri.fsPath);
-            webviewPanel.webview.postMessage({
-              type: "diffContent",
-              content: headContent,
-            });
+            const headUri = document.uri.with({ scheme: "marksense-head" });
+            const fileName = path.basename(document.uri.fsPath);
+            await vscode.commands.executeCommand(
+              "vscode.diff",
+              headUri,
+              document.uri,
+              `${fileName} (HEAD \u2194 Working)`
+            );
           } catch (err) {
-            console.error("[Marksense] Error fetching diff:", err);
+            console.error("[Marksense] Error opening diff:", err);
           }
         }
 
@@ -349,6 +404,7 @@ export class MarkdownEditorProvider
             type: "update",
             content: diskContent,
           });
+          this.sendDiffCount(document, webviewPanel);
         }
       } catch {
         // File may have been deleted
@@ -389,6 +445,17 @@ export class MarkdownEditorProvider
     });
   }
 
+  // ── Diff count ─────────────────────────────────────────────────
+
+  private sendDiffCount(
+    document: MarkdownDocument,
+    panel: vscode.WebviewPanel
+  ): void {
+    if (!isInsideGitRepo(document.uri.fsPath)) return;
+    const count = getDiffChangeCount(document.uri.fsPath);
+    panel.webview.postMessage({ type: "diffCount", count });
+  }
+
   // ── Save / Revert / Backup ───────────────────────────────────────
 
   async saveCustomDocument(
@@ -397,6 +464,8 @@ export class MarkdownEditorProvider
   ): Promise<void> {
     await fs.promises.writeFile(document.uri.fsPath, document.content, "utf-8");
     document.markSaved();
+    const panel = this.webviewPanels.get(document.uri.toString());
+    if (panel) this.sendDiffCount(document, panel);
   }
 
   async saveCustomDocumentAs(

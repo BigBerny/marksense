@@ -87,8 +87,6 @@ import { vscode } from "./vscodeApi"
 
 // --- Diff ---
 import { DiffProvider, useDiff } from "./DiffContext"
-import { DiffHighlight, diffHighlightKey } from "./extensions/DiffHighlightExtension"
-import "./components/DiffView.scss"
 
 // --- Frontmatter, MDX & HTML block preservation ---
 import {
@@ -283,7 +281,7 @@ function MarkdownEditorInner() {
   const isExternalUpdate = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
-  const { isDiffMode, headContent, setHeadContent, exitDiffMode } = useDiff()
+  const { setChangeCount } = useDiff()
 
   // --- Parse the initial file content into frontmatter + body (once) ---
   const [initialParsed] = useState(() => {
@@ -317,9 +315,9 @@ function MarkdownEditorInner() {
   const rawPrefixRef = useRef(initialParsed.rawPrefix)
   const [rawPrefix, setRawPrefix] = useState(initialParsed.rawPrefix)
 
-  const [rawMode, setRawMode] = useState(false)
-  const [rawContent, setRawContent] = useState("")
-  const rawContentOriginal = useRef("")
+  const [sourceMode, setSourceMode] = useState(false)
+  const [sourceContent, setSourceContent] = useState("")
+  const sourceContentOriginal = useRef("")
 
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
 
@@ -419,11 +417,6 @@ function MarkdownEditorInner() {
       Typography,
       UiState,
       TocNode.configure({ topOffset: 48 }),
-      // --- Diff highlight (inline decorations) ---
-      DiffHighlight.configure({
-        normalizeMarkdown: (md: string) =>
-          unresolveImageUrls(unwrapJsxComponents(md), documentDirWebviewUri),
-      }),
       // --- Raw text blocks (editable JSX tag blocks + TableConfig) ---
       RawText,
       // --- Typewise: autocorrection + inline predictions ---
@@ -623,52 +616,13 @@ function MarkdownEditorInner() {
         })
       }
 
-      // --- Diff: receive HEAD content from extension host ---
-      if (message.type === "diffContent") {
-        setHeadContent(message.content ?? null)
+      // --- Diff: receive change count from extension host ---
+      if (message.type === "diffCount" && typeof message.count === "number") {
+        setChangeCount(message.count)
       }
     },
-    [editor, setHeadContent]
+    [editor, setChangeCount]
   )
-
-  // --- Request diff content when diff mode is toggled on ---
-  useEffect(() => {
-    if (isDiffMode) {
-      vscode.postMessage({ type: "requestDiff" })
-    } else if (editor && !editor.isDestroyed) {
-      // Deactivate diff decorations
-      editor.view.dispatch(
-        editor.state.tr.setMeta(diffHighlightKey, { type: "deactivate" })
-      )
-    }
-  }, [isDiffMode, editor])
-
-  // --- Activate diff decorations when HEAD content arrives ---
-  useEffect(() => {
-    if (isDiffMode && headContent !== null && editor && !editor.isDestroyed) {
-      // Normalize HEAD: strip frontmatter and leading HTML blocks so we
-      // compare only the body, matching what the editor actually has.
-      const headParsed = parseFrontmatter(headContent)
-      const { body: headBody } = extractLeadingHtml(headParsed.body)
-
-      // Normalize current: unwrap JSX div markers back to original tags
-      // and convert resolved webview URIs back to relative paths.
-      // @ts-ignore — getMarkdown available via @tiptap/markdown
-      const md = editor.getMarkdown()
-      const currentBody = unresolveImageUrls(
-        unwrapJsxComponents(md),
-        documentDirWebviewUri
-      )
-
-      editor.view.dispatch(
-        editor.state.tr.setMeta(diffHighlightKey, {
-          type: "activate",
-          headContent: headBody,
-          currentMarkdown: currentBody,
-        })
-      )
-    }
-  }, [isDiffMode, headContent, editor])
 
   useEffect(() => {
     window.addEventListener("message", handleMessage)
@@ -682,15 +636,12 @@ function MarkdownEditorInner() {
     }
   }, [])
 
-  // ── Raw markdown toggle ────────────────────────────────────────────
-  const handleToggleRawMode = useCallback(() => {
+  // ── Source mode toggle ─────────────────────────────────────────────
+  const handleToggleSourceMode = useCallback(() => {
     if (!editor || editor.isDestroyed) return
 
-    if (!rawMode) {
-      // Diff view is not supported in raw mode, so exit it first
-      if (isDiffMode) exitDiffMode()
-
-      // Entering raw mode: show the full file content (frontmatter + body)
+    if (!sourceMode) {
+      // Entering source mode: show the full file content (frontmatter + body)
       // with relative image paths (not webview URIs).
       // @ts-ignore — getMarkdown available via @tiptap/markdown
       const md = editor.getMarkdown()
@@ -706,12 +657,12 @@ function MarkdownEditorInner() {
         restoredBody,
         rawFrontmatterRef.current
       )
-      setRawContent(full)
-      rawContentOriginal.current = full
+      setSourceContent(full)
+      sourceContentOriginal.current = full
     } else {
-      // Leaving raw mode: re-parse frontmatter + JSX + HTML prefix and update editor
-      if (rawContent !== rawContentOriginal.current) {
-        const parsed = parseFrontmatter(rawContent)
+      // Leaving source mode: re-parse frontmatter + JSX + HTML prefix and update editor
+      if (sourceContent !== sourceContentOriginal.current) {
+        const parsed = parseFrontmatter(sourceContent)
         const { htmlPrefix: newRawPrefix, body: strippedBody } =
           extractLeadingHtml(parsed.body)
         rawPrefixRef.current = newRawPrefix
@@ -735,8 +686,8 @@ function MarkdownEditorInner() {
         })
       }
     }
-    setRawMode((prev) => !prev)
-  }, [editor, rawMode, rawContent, isDiffMode, exitDiffMode])
+    setSourceMode((prev) => !prev)
+  }, [editor, sourceMode, sourceContent])
 
   // ── Frontmatter change handler ─────────────────────────────────────
   const handleFrontmatterChange = useCallback(
@@ -809,21 +760,21 @@ function MarkdownEditorInner() {
     return <LoadingSpinner />
   }
 
-  const showRaw = rawMode
+  const showSource = sourceMode
 
   return (
     <div className="notion-like-editor-wrapper">
       <EditorContext.Provider value={{ editor }}>
-        <NotionEditorHeader rawMode={rawMode} onToggleRawMode={handleToggleRawMode} />
+        <NotionEditorHeader sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />
 
-        {showRaw ? (
+        {showSource ? (
           <div className="raw-markdown-container">
             <textarea
               className="raw-markdown-editor"
-              value={rawContent}
+              value={sourceContent}
               onChange={(e) => {
                 const val = e.target.value
-                setRawContent(val)
+                setSourceContent(val)
 
                 // Sync back to VS Code with debounce
                 if (debounceTimer.current) clearTimeout(debounceTimer.current)
@@ -853,7 +804,7 @@ function MarkdownEditorInner() {
 
                 <MarkdownEditorContent editor={editor} />
               </div>
-              <TocSidebar topOffset={48} actions={<EditorActions rawMode={rawMode} onToggleRawMode={handleToggleRawMode} />} />
+              <TocSidebar topOffset={48} actions={<EditorActions sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />} />
             </div>
 
             <TableExtendRowColumnButtons />
@@ -870,8 +821,8 @@ function MarkdownEditorInner() {
           </>
         )}
       </EditorContext.Provider>
-      {!rawMode && <CorrectionPopup editor={editor} />}
-      {!rawMode && <TableConfigCellPopover editor={editor} />}
+      {!sourceMode && <CorrectionPopup editor={editor} />}
+      {!sourceMode && <TableConfigCellPopover editor={editor} />}
     </div>
   )
 }

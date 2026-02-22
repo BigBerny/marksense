@@ -55,12 +55,12 @@ function DiffToggleIcon({ className }: { className?: string }) {
 }
 
 export interface EditorActionsProps {
-  rawMode?: boolean
-  onToggleRawMode?: () => void
+  sourceMode?: boolean
+  onToggleSourceMode?: () => void
 }
 
-export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) {
-  const { isDiffMode, isGitRepo, toggleDiffMode } = useDiff()
+export function EditorActions({ sourceMode, onToggleSourceMode }: EditorActionsProps) {
+  const { changeCount, isGitRepo, openDiffEditor } = useDiff()
 
   return (
     <>
@@ -73,25 +73,29 @@ export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) 
 
       {isGitRepo && (
         <Button
-          onClick={toggleDiffMode}
-          tooltip={rawMode ? "Show Changes (not available in raw mode)" : "Show Changes"}
+          onClick={openDiffEditor}
+          tooltip="Show Changes"
           data-style="ghost"
-          data-active-state={isDiffMode ? "on" : undefined}
-          aria-label="Toggle diff view"
-          disabled={rawMode}
+          aria-label="Open diff editor"
+          style={{ position: "relative" }}
         >
           <DiffToggleIcon className="tiptap-button-icon" />
+          {changeCount > 0 && (
+            <span className="diff-badge">
+              {changeCount > 99 ? "99+" : changeCount}
+            </span>
+          )}
         </Button>
       )}
 
-      {onToggleRawMode && (
+      {onToggleSourceMode && (
         <Button
           type="button"
           data-style="ghost"
-          aria-label={rawMode ? "Switch to rich editor" : "View raw markdown"}
-          tooltip={rawMode ? "Switch to rich editor" : "View raw markdown"}
-          onClick={onToggleRawMode}
-          data-active-state={rawMode ? "on" : undefined}
+          aria-label={sourceMode ? "Switch to rich editor" : "View source"}
+          tooltip={sourceMode ? "Switch to rich editor" : "View source"}
+          onClick={onToggleSourceMode}
+          data-active-state={sourceMode ? "on" : undefined}
         >
           <SourceViewIcon className="tiptap-button-icon" />
         </Button>
@@ -105,16 +109,16 @@ export function EditorActions({ rawMode, onToggleRawMode }: EditorActionsProps) 
 }
 
 interface NotionEditorHeaderProps {
-  rawMode?: boolean
-  onToggleRawMode?: () => void
+  sourceMode?: boolean
+  onToggleSourceMode?: () => void
 }
 
-export function NotionEditorHeader({ rawMode, onToggleRawMode }: NotionEditorHeaderProps) {
+export function NotionEditorHeader({ sourceMode, onToggleSourceMode }: NotionEditorHeaderProps) {
   return (
-    <header className="notion-like-editor-header" data-raw-mode={rawMode ? "true" : undefined}>
+    <header className="notion-like-editor-header" data-source-mode={sourceMode ? "true" : undefined}>
       <Spacer />
       <div className="notion-like-editor-header-actions">
-        <EditorActions rawMode={rawMode} onToggleRawMode={onToggleRawMode} />
+        <EditorActions sourceMode={sourceMode} onToggleSourceMode={onToggleSourceMode} />
       </div>
     </header>
   )

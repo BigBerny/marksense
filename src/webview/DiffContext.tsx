@@ -1,46 +1,36 @@
 import { createContext, useContext, useState, useCallback } from "react"
 import type { ReactNode } from "react"
+import { vscode } from "./vscodeApi"
 
 interface DiffContextValue {
-  /** Whether diff mode is currently active */
-  isDiffMode: boolean
-  /** The HEAD content received from git (null = not yet loaded or unavailable) */
-  headContent: string | null
+  /** Number of changed lines compared to HEAD */
+  changeCount: number
   /** Whether the file is inside a git repository */
   isGitRepo: boolean
-  /** Toggle diff mode on/off */
-  toggleDiffMode: () => void
-  /** Set the HEAD content received from the extension host */
-  setHeadContent: (content: string | null) => void
-  /** Exit diff mode */
-  exitDiffMode: () => void
+  /** Open VS Code's built-in diff editor */
+  openDiffEditor: () => void
+  /** Set the change count (called when extension host sends diffCount) */
+  setChangeCount: (count: number) => void
 }
 
 const DiffContext = createContext<DiffContextValue | null>(null)
 
-export function DiffProvider({ isGitRepo = false, children }: { isGitRepo?: boolean; children: ReactNode }) {
-  const [isDiffMode, setIsDiffMode] = useState(false)
-  const [headContent, setHeadContent] = useState<string | null>(null)
+export function DiffProvider({
+  isGitRepo = false,
+  children,
+}: {
+  isGitRepo?: boolean
+  children: ReactNode
+}) {
+  const [changeCount, setChangeCount] = useState(0)
 
-  const toggleDiffMode = useCallback(() => {
-    setIsDiffMode((prev) => !prev)
-  }, [])
-
-  const exitDiffMode = useCallback(() => {
-    setIsDiffMode(false)
-    setHeadContent(null)
+  const openDiffEditor = useCallback(() => {
+    vscode.postMessage({ type: "openBuiltinDiff" })
   }, [])
 
   return (
     <DiffContext.Provider
-      value={{
-        isDiffMode,
-        headContent,
-        isGitRepo,
-        toggleDiffMode,
-        setHeadContent,
-        exitDiffMode,
-      }}
+      value={{ changeCount, isGitRepo, openDiffEditor, setChangeCount }}
     >
       {children}
     </DiffContext.Provider>
