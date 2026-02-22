@@ -18,8 +18,8 @@
   .dark & {
     --tt-toc-sidebar-line-bg: var(--tt-gray-dark-200);
     --tt-toc-sidebar-line-bg-active: var(--tt-gray-dark-900);
-    --tt-toc-sidebar-bg: var(--tt-gray-dark-200);
-    --tt-toc-sidebar-border-color: var(--tt-gray-dark-a-100);
+    --tt-toc-sidebar-bg: var(--tt-gray-dark-50);
+    --tt-toc-sidebar-border-color: var(--tt-gray-dark-a-50);
     --tt-toc-sidebar-text-color: var(--tt-gray-dark-a-500);
     --tt-toc-sidebar-text-hover-color: var(--tt-gray-dark-a-800);
     --tt-toc-sidebar-bg-hover-color: var(--tt-gray-dark-a-100);
@@ -75,6 +75,7 @@
     row-gap: 0.75rem;
     padding-bottom: 0.75rem;
     padding-left: 1.25rem;
+    cursor: pointer;
 
     &-line {
       height: 0.125rem;
@@ -84,7 +85,11 @@
         var(--tt-toc-sidebar-line-bg-active) var(--toc-proximity, 0%),
         var(--tt-toc-sidebar-line-bg)
       );
-      transition: background-color 0.3s ease;
+      transition: background-color 0.15s ease;
+
+      &--hovered {
+        background-color: var(--tt-toc-sidebar-line-bg-active);
+      }
 
       margin-left: calc(
         var(--toc-progress-indent) * (var(--toc-depth, 1) - 1) *
@@ -113,16 +118,17 @@
      ========================= */
   &-nav {
     position: absolute;
-    top: -0.625rem;
-    right: 0;
-    padding-inline: 0.625rem;
+    top: var(--toc-nav-top, 0px);
+    right: 100%;
+    padding-inline: 0;
     pointer-events: none;
-    transform: translateX(10px);
+    transform: translateX(-10px);
     opacity: 0;
     display: flex;
     transition:
       transform 0.3s ease,
-      opacity 0.3s ease;
+      opacity 0.3s ease,
+      top 0.15s ease;
 
     &--hidden {
       display: none;
@@ -131,16 +137,16 @@
 
   /* Popover container */
   &-popover {
-    --padding: 0.75rem;
+    --padding: 0.375rem;
     --border-width: 1px;
 
     background-color: var(--tt-toc-sidebar-bg);
-    border-radius: calc(var(--padding) + var(--tt-radius-md));
+    border-radius: calc(var(--padding) + var(--tt-radius-lg));
     border: 1px solid var(--tt-toc-sidebar-border-color);
     box-shadow: var(--tt-shadow-elevated-md);
-    margin-right: -0.625rem;
+    margin-right: 0;
     max-height: 24rem;
-    width: 100%;
+    width: 13rem;
     overflow: auto;
     padding: var(--padding);
     scroll-margin: 0.25rem;
@@ -181,7 +187,8 @@
       box-shadow: none;
     }
 
-    &:hover {
+    &:hover,
+    &--hovered {
       background-color: var(--tt-toc-sidebar-bg-hover-color);
       color: var(--tt-toc-sidebar-text-hover-color);
     }

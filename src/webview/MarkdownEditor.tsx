@@ -63,6 +63,7 @@ import { EmojiDropdownMenu } from "@/components/tiptap-ui/emoji-dropdown-menu"
 import { MentionDropdownMenu } from "@/components/tiptap-ui/mention-dropdown-menu"
 import { SlashDropdownMenu } from "@/components/tiptap-ui/slash-dropdown-menu"
 import { DragContextMenu } from "@/components/tiptap-ui/drag-context-menu"
+import { MetadataIcon } from "@/components/tiptap-icons/metadata-icon"
 
 
 // --- Template components ---
@@ -232,12 +233,39 @@ const handleImageUpload = createImageUploadHandler()
  * Content area that renders the editor with all menus and toolbars.
  * Expects to be inside an EditorContext.Provider.
  */
-function MarkdownEditorContent({ editor }: { editor: any }) {
+function MarkdownEditorContent({
+  editor,
+  hasFrontmatter,
+  onAddMetadata,
+}: {
+  editor: any
+  hasFrontmatter: boolean
+  onAddMetadata: () => void
+}) {
   const {
     isDragging,
   } = useUiEditorState(editor)
 
   useScrollToHash()
+
+  const slashConfig = useMemo(() => {
+    if (hasFrontmatter) return undefined
+    return {
+      customItems: [
+        {
+          title: "Metadata",
+          subtext: "Add YAML frontmatter block",
+          keywords: ["metadata", "frontmatter", "yaml", "meta"],
+          badge: MetadataIcon,
+          group: "Insert",
+          onSelect: ({ editor: ed, range }: { editor: any; range: any }) => {
+            ed.chain().focus().deleteRange(range).run()
+            onAddMetadata()
+          },
+        },
+      ],
+    }
+  }, [hasFrontmatter, onAddMetadata])
 
   if (!editor) return null
 
@@ -251,7 +279,7 @@ function MarkdownEditorContent({ editor }: { editor: any }) {
       <DragContextMenu />
       <EmojiDropdownMenu />
       <MentionDropdownMenu />
-      <SlashDropdownMenu />
+      <SlashDropdownMenu config={slashConfig} />
       <NotionToolbarFloating />
       {createPortal(<MobileToolbar />, document.body)}
     </EditorContent>
@@ -799,6 +827,14 @@ function MarkdownEditorInner() {
     [editor]
   )
 
+  // ── Add metadata handler (creates frontmatter from scratch) ─────
+  const [frontmatterStartUnlocked, setFrontmatterStartUnlocked] = useState(false)
+  const handleAddMetadata = useCallback(() => {
+    const initial: FrontmatterEntry[] = [{ key: "", value: "" }]
+    setFrontmatterStartUnlocked(true)
+    handleFrontmatterChange(initial)
+  }, [handleFrontmatterChange])
+
   if (!editor) {
     return <LoadingSpinner />
   }
@@ -840,15 +876,18 @@ function MarkdownEditorInner() {
                 {/* Raw blocks (HTML etc.) preserved from round-trip */}
                 <RawPrefixBlock rawPrefix={rawPrefix} onChange={handleRawPrefixChange} />
 
-                {/* Frontmatter key-value panel (only if file has frontmatter) */}
-                {frontmatter && frontmatter.length > 0 && (
-                  <FrontmatterPanel
-                    entries={frontmatter}
-                    onChange={handleFrontmatterChange}
-                  />
-                )}
+                {/* Frontmatter key-value panel */}
+                <FrontmatterPanel
+                  entries={frontmatter}
+                  onChange={handleFrontmatterChange}
+                  defaultUnlocked={frontmatterStartUnlocked}
+                />
 
-                <MarkdownEditorContent editor={editor} />
+                <MarkdownEditorContent
+                  editor={editor}
+                  hasFrontmatter={frontmatter !== null && frontmatter.length > 0}
+                  onAddMetadata={handleAddMetadata}
+                />
               </div>
               <TocSidebar topOffset={48} actions={<EditorActions sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />} />
             </div>

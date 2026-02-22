@@ -57,9 +57,9 @@ export const SuggestionMenu = ({
   const [internalQuery, setInternalQuery] = useState<string>("")
   const [, setInternalRange] = useState<Range | null>(null)
 
-  const isTypingRef = useRef(false)
   const dismissedRef = useRef(false)
   const isActiveRef = useRef(false)
+  const prevDocRef = useRef<any>(null)
 
   const { ref, style, getFloatingProps, isMounted } = useFloatingElement(
     show,
@@ -113,27 +113,11 @@ export const SuggestionMenu = ({
   }, [])
 
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-
-    const handler = ({ transaction }: { transaction: any }) => {
-      if (transaction.docChanged) {
-        isTypingRef.current = true
-        dismissedRef.current = false
-      } else {
-        isTypingRef.current = false
-      }
-    }
-
-    editor.on("transaction", handler)
-    return () => {
-      editor.off("transaction", handler)
-    }
-  }, [editor])
-
-  useEffect(() => {
     if (!editor || editor.isDestroyed) {
       return
     }
+
+    prevDocRef.current = editor.state.doc
 
     const existingPlugin = editor.state.plugins.find(
       (plugin) => plugin.spec.key === pluginKey
@@ -148,20 +132,31 @@ export const SuggestionMenu = ({
       editor,
 
       allow(props) {
+        // Detect doc changes synchronously by comparing with the
+        // previous doc reference. The `state` param is the new state
+        // passed from ProseMirror's plugin `apply`, so it's available
+        // before TipTap's `transaction` event fires.
+        const currentDoc = props.state?.doc ?? editor.state.doc
+        const docChanged = currentDoc !== prevDocRef.current
+        prevDocRef.current = currentDoc
+
+        if (docChanged) {
+          dismissedRef.current = false
+        }
+
         if (dismissedRef.current) {
           return false
         }
 
-        if (!isActiveRef.current && !isTypingRef.current) {
+        if (!isActiveRef.current && !docChanged) {
           return false
         }
 
-        const $from = editor.state.doc.resolve(props.range.from)
+        const $from = (props.state ?? editor.state).doc.resolve(props.range.from)
 
-        // Check if we're inside an image node
         for (let depth = $from.depth; depth > 0; depth--) {
           if ($from.node(depth).type.name === "image") {
-            return false // Don't allow slash command inside image (since we support captions)
+            return false
           }
         }
 

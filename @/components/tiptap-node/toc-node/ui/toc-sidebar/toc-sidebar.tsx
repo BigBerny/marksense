@@ -43,6 +43,8 @@ export function TocSidebar({
   // ignore the scroll event it produces.
   const lastNavTimeRef = useRef<number>(0)
 
+  const lastAlignIndexRef = useRef(-1)
+
   const headingList = useMemo<TableOfContentData>(
     () => tocContent ?? [],
     [tocContent]
@@ -133,6 +135,74 @@ export function TocSidebar({
     [navigateToHeading, topOffset]
   )
 
+  const handleProgressMouseMove = useCallback((e: React.MouseEvent) => {
+    const container = e.currentTarget as HTMLElement
+    const lines = container.querySelectorAll('.toc-sidebar-progress-line')
+    if (lines.length === 0) return
+
+    const mouseY = e.clientY
+    let closestIndex = 0
+    let closestDist = Infinity
+
+    for (let i = 0; i < lines.length; i++) {
+      const rect = (lines[i] as HTMLElement).getBoundingClientRect()
+      const center = rect.top + rect.height / 2
+      const dist = Math.abs(mouseY - center)
+      if (dist < closestDist) {
+        closestDist = dist
+        closestIndex = i
+      }
+    }
+
+    if (closestIndex === lastAlignIndexRef.current) return
+    lastAlignIndexRef.current = closestIndex
+
+    const inner = container.parentElement
+    if (!inner) return
+
+    inner.querySelector('.toc-sidebar-progress-line--hovered')?.classList.remove('toc-sidebar-progress-line--hovered')
+    lines[closestIndex]?.classList.add('toc-sidebar-progress-line--hovered')
+
+    const nav = inner.querySelector('.toc-sidebar-nav') as HTMLElement
+    if (!nav) return
+    const items = nav.querySelectorAll('.toc-sidebar-item')
+
+    inner.querySelector('.toc-sidebar-item--hovered')?.classList.remove('toc-sidebar-item--hovered')
+    items[closestIndex]?.classList.add('toc-sidebar-item--hovered')
+
+    const lineEl = lines[closestIndex] as HTMLElement
+    const lineRect = lineEl.getBoundingClientRect()
+    const lineCenter = lineRect.top + lineRect.height / 2
+    const innerRect = inner.getBoundingClientRect()
+    const lineCenterRelToInner = lineCenter - innerRect.top
+
+    const targetItem = items[closestIndex] as HTMLElement
+    if (!targetItem) return
+    const itemCenterRelToNav = targetItem.offsetTop + targetItem.offsetHeight / 2
+
+    nav.style.setProperty('--toc-nav-top', `${lineCenterRelToInner - itemCenterRelToNav}px`)
+  }, [])
+
+  const handleProgressMouseLeave = useCallback((e: React.MouseEvent) => {
+    lastAlignIndexRef.current = -1
+    const container = e.currentTarget as HTMLElement
+    container.querySelector('.toc-sidebar-progress-line--hovered')?.classList.remove('toc-sidebar-progress-line--hovered')
+    const inner = container.parentElement
+    if (!inner) return
+    inner.querySelector('.toc-sidebar-item--hovered')?.classList.remove('toc-sidebar-item--hovered')
+  }, [])
+
+  const handleProgressClick = useCallback(() => {
+    const index = lastAlignIndexRef.current
+    if (index < 0) return
+    const item = visibleHeadings[index]
+    if (!item) return
+
+    setManualActiveId(item.id)
+    lastNavTimeRef.current = Date.now()
+    navigateToHeading(item, { topOffset })
+  }, [visibleHeadings, navigateToHeading, topOffset])
+
   /**
    * Restore scroll position from URL hash on initial load
    */
@@ -183,7 +253,7 @@ export function TocSidebar({
       <div className="toc-sidebar-wrapper">
         <div className="toc-sidebar-inner">
           {/* Progress rail */}
-          <div className="toc-sidebar-progress">
+          <div className="toc-sidebar-progress" onMouseMove={handleProgressMouseMove} onMouseLeave={handleProgressMouseLeave} onClick={handleProgressClick}>
             {visibleHeadings.map((item) => {
               const depth = depthById.get(item.id) ?? 1
               const isActive = activeContentId === item.id
