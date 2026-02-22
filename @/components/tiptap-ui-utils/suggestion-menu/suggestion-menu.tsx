@@ -148,10 +148,6 @@ export const SuggestionMenu = ({
           return false
         }
 
-        if (!isActiveRef.current && !docChanged) {
-          return false
-        }
-
         const $from = (props.state ?? editor.state).doc.resolve(props.range.from)
 
         for (let depth = $from.depth; depth > 0; depth--) {

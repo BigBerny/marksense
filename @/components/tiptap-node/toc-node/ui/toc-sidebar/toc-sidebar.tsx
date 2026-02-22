@@ -44,6 +44,9 @@ export function TocSidebar({
   const lastNavTimeRef = useRef<number>(0)
 
   const lastAlignIndexRef = useRef(-1)
+  const navOffsetTargetRef = useRef(0)
+  const navOffsetCurrentRef = useRef(0)
+  const navAnimationFrameRef = useRef<number | null>(null)
 
   const headingList = useMemo<TableOfContentData>(
     () => tocContent ?? [],
@@ -180,7 +183,29 @@ export function TocSidebar({
     if (!targetItem) return
     const itemCenterRelToNav = targetItem.offsetTop + targetItem.offsetHeight / 2
 
-    nav.style.setProperty('--toc-nav-top', `${lineCenterRelToInner - itemCenterRelToNav}px`)
+    navOffsetTargetRef.current = lineCenterRelToInner - itemCenterRelToNav
+
+    if (navAnimationFrameRef.current !== null) return
+
+    const animate = () => {
+      const target = navOffsetTargetRef.current
+      const current = navOffsetCurrentRef.current
+      const delta = target - current
+
+      // Damped interpolation gives consistently smooth movement.
+      const next = Math.abs(delta) < 0.2 ? target : current + delta * 0.14
+      navOffsetCurrentRef.current = next
+      nav.style.setProperty("--toc-nav-offset", `${next}px`)
+
+      if (Math.abs(target - next) < 0.2) {
+        navAnimationFrameRef.current = null
+        return
+      }
+
+      navAnimationFrameRef.current = window.requestAnimationFrame(animate)
+    }
+
+    navAnimationFrameRef.current = window.requestAnimationFrame(animate)
   }, [])
 
   const handleProgressMouseLeave = useCallback((e: React.MouseEvent) => {
@@ -190,6 +215,14 @@ export function TocSidebar({
     const inner = container.parentElement
     if (!inner) return
     inner.querySelector('.toc-sidebar-item--hovered')?.classList.remove('toc-sidebar-item--hovered')
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (navAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(navAnimationFrameRef.current)
+      }
+    }
   }, [])
 
   const handleProgressClick = useCallback(() => {

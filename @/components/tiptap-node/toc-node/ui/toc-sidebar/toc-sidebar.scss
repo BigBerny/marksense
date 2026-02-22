@@ -118,17 +118,14 @@
      ========================= */
   &-nav {
     position: absolute;
-    top: var(--toc-nav-top, 0px);
+    top: 0;
     right: 100%;
     padding-inline: 0;
     pointer-events: none;
-    transform: translateX(-10px);
+    transform: translate(-10px, var(--toc-nav-offset, 0px));
     opacity: 0;
     display: flex;
-    transition:
-      transform 0.3s ease,
-      opacity 0.3s ease,
-      top 0.15s ease;
+    transition: opacity 0.2s ease;
 
     &--hidden {
       display: none;
@@ -310,7 +307,7 @@
     @media (hover: hover) {
       &-wrapper:hover &-nav {
         pointer-events: auto;
-        transform: translateX(0);
+        transform: translate(0, var(--toc-nav-offset, 0px));
         opacity: 1;
       }
     }
@@ -319,7 +316,7 @@
     @media (hover: none) {
       &-nav {
         pointer-events: auto;
-        transform: translateX(0);
+        transform: translate(0, var(--toc-nav-offset, 0px));
         opacity: 1;
       }
     }
