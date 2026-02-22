@@ -17,8 +17,8 @@
 - **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
 - **Markdown round-trip** — opens `.md` files, edits in rich text, saves back as clean Markdown.
 - **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
-- **Inline predictions** — sentence completion powered by [Typewise](https://www.typewise.app) (optional, requires API token)
-- **Spellcheck & grammar** — autocorrect and grammar correction powered by [Typewise](https://www.typewise.app)
+- **Offline-first AI** — spellcheck and sentence completion run locally via WASM, no network or API token needed; grammar correction available with a [Typewise](https://www.typewise.app) API token
+- **Inline predictions** — sentence completion powered by a local model (English) or [Typewise](https://www.typewise.app) cloud API
 - **Image upload** — drag & drop or click to upload images; files are saved to an `images/` folder next to the Markdown file and rendered inline
 - **Git diff viewer** — inline change highlighting against the last commit
 - **Frontmatter panel** — edit YAML frontmatter as key-value pairs
@@ -83,15 +83,35 @@ Open your **User** settings (`Ctrl+Shift+P` / `Cmd+Shift+P` → **Preferences: O
 
 ## Configuration
 
-| Setting                      | Default | Description                                                     |
-| ---------------------------- | ------- | --------------------------------------------------------------- |
-| `marksense.autoSaveDelay`    | `300`   | Debounce delay (ms) before syncing edits to the file            |
-| `marksense.defaultFullWidth` | `false` | Open files in wide layout by default (togglable per file)       |
-| `marksense.typewiseToken`    | `""`    | Typewise API token for autocorrect, grammar, and predictions    |
+| Setting                      | Default             | Description                                                     |
+| ---------------------------- | ------------------- | --------------------------------------------------------------- |
+| `marksense.autoSaveDelay`    | `300`               | Debounce delay (ms) before syncing edits to the file            |
+| `marksense.defaultFullWidth` | `false`             | Open files in wide layout by default (togglable per file)       |
+| `marksense.aiProvider`       | `offlinePreferred`  | AI provider mode — see [Offline support](#offline-support) below |
+| `marksense.typewiseToken`    | `""`                | Typewise API token for grammar correction and cloud fallback    |
+
+### Offline support
+
+Marksense ships with a local WASM-based AI engine that runs entirely inside the editor — no network connection or API token required. Spellcheck, autocorrect, and sentence completion (English) work out of the box.
+
+The `marksense.aiProvider` setting controls how local and cloud AI are combined:
+
+| Mode | Behaviour |
+| --- | --- |
+| `offlinePreferred` (default) | Local WASM models run first; falls back to the cloud API only if a token is set and the local engine hasn't loaded yet |
+| `apiPreferred` | Cloud API runs first (requires token); falls back to local models if the API is unreachable |
+| `offlineOnly` | Strictly local — no network calls. Grammar correction is disabled |
+
+| Feature | Offline | Cloud (with token) |
+| --- | --- | --- |
+| Spellcheck / autocorrect | Yes (en, de, fr) | Yes |
+| Sentence completion | Yes (English only) | Yes |
+| Language detection | Yes | — |
+| Grammar correction | No | Yes |
 
 ### Typewise AI setup (optional)
 
-Marksense can use [Typewise](https://www.typewise.app) for autocorrect, grammar correction, and sentence completion. Without a token, these features are disabled and the extension works as a pure offline editor. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app).
+Marksense can use [Typewise](https://www.typewise.app) for grammar correction and as a cloud fallback for autocorrect and predictions. Without a token, spellcheck and predictions still work offline via the built-in WASM engine. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app).
 
 **Option 1 — VS Code setting (recommended):**
 

@@ -1,9 +1,9 @@
 /**
  * Typewise AI integration for CodeMirror 6.
  *
- * Provides autocorrect (via local SDK), grammar correction (via cloud API),
- * and sentence prediction (via local SDK) in the source editor, matching
- * the behaviour of TypewiseIntegration.ts (the Tiptap/ProseMirror version).
+ * Provides autocorrect, grammar correction, and sentence prediction in the
+ * source editor, matching the behaviour of TypewiseIntegration.ts. Uses either
+ * the local SDK or the cloud API depending on the `aiProvider` setting.
  */
 
 import {
@@ -21,7 +21,12 @@ import {
   isInDictionary,
   isSentenceComplete,
   SENTENCE_END_PUNCTUATION,
+  apiCorrectWord,
+  apiSentenceComplete,
+  normalizeApiCorrection,
+  normalizeApiPrediction,
   type CorrectionEntry,
+  type AiProvider,
 } from "./typewise-api"
 import { typewiseSdk } from "./typewise-sdk-service"
 
@@ -182,6 +187,7 @@ export const cmTypewiseState = StateField.define<CMTypewiseState>({
 export interface CMTypewiseOptions {
   apiBaseUrl: string
   apiToken: string
+  aiProvider: AiProvider
   languages: string[]
   autocorrect: boolean
   predictions: boolean
@@ -191,6 +197,7 @@ export interface CMTypewiseOptions {
 const defaultOptions: CMTypewiseOptions = {
   apiBaseUrl: "https://api.typewise.ai/v0",
   apiToken: "",
+  aiProvider: "offlinePreferred",
   languages: ["en", "de", "fr"],
   autocorrect: true,
   predictions: true,
@@ -418,8 +425,8 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
             }
           }
 
-          // Grammar (uses cloud API — needs apiToken)
-          if (opts.autocorrect && opts.apiToken) {
+          // Grammar (uses cloud API — needs apiToken, disabled in offlineOnly)
+          if (opts.autocorrect && opts.apiToken && opts.aiProvider !== "offlineOnly") {
             const isNewline = insertedText.includes("\n")
 
             // Enter key: immediate grammar check on the paragraph we just left
@@ -494,11 +501,32 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
       }
     }
 
+    async getCorrection(text: string) {
+      const { aiProvider } = opts
+      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+        const result = await typewiseSdk.correct(text)
+        if (result || aiProvider === "offlineOnly") return result
+      }
+      if (aiProvider === "apiPreferred" && opts.apiToken) {
+        const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiCorrection(apiResult)
+        if (typewiseSdk.ready) return typewiseSdk.correct(text)
+        return null
+      }
+      if (opts.apiToken) {
+        const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiCorrection(apiResult)
+      }
+      return null
+    }
+
     async checkFinalWord(view: EditorView, sentenceText: string, blockStart: number) {
-      if (!opts.autocorrect || !typewiseSdk.ready) return
+      if (!opts.autocorrect) return
+      if (opts.aiProvider === "offlineOnly" && !typewiseSdk.ready) return
+      if (opts.aiProvider !== "offlineOnly" && !typewiseSdk.ready && !opts.apiToken) return
 
       try {
-        const data = await typewiseSdk.correct(sentenceText)
+        const data = await this.getCorrection(sentenceText)
         if (!data) return
 
         const charsToReplace = data.chars_to_replace || 0
@@ -587,7 +615,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     }
 
     async checkGrammar(view: EditorView, sentenceText: string, sentenceFrom: number, fullText: string) {
-      if (!opts.autocorrect || !opts.apiToken) return
+      if (!opts.autocorrect || !opts.apiToken || opts.aiProvider === "offlineOnly") return
 
       if (this.grammarAbort) this.grammarAbort.abort()
       this.grammarAbort = new AbortController()
@@ -678,12 +706,33 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
       }, opts.predictionDebounce || 300)
     }
 
+    async getPrediction(text: string, capitalize: boolean) {
+      const { aiProvider } = opts
+      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+        const result = await typewiseSdk.findPredictions(text, capitalize)
+        if (result || aiProvider === "offlineOnly") return result
+      }
+      if (aiProvider === "apiPreferred" && opts.apiToken) {
+        const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiPrediction(apiResult)
+        if (typewiseSdk.ready) return typewiseSdk.findPredictions(text, capitalize)
+        return null
+      }
+      if (opts.apiToken) {
+        const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiPrediction(apiResult)
+      }
+      return null
+    }
+
     async fetchPrediction(view: EditorView, text: string, cursorPos: number, requestId: number) {
-      if (!opts.predictions || !typewiseSdk.ready || text.trim().length < 3) return
+      if (!opts.predictions || text.trim().length < 3) return
+      if (opts.aiProvider === "offlineOnly" && !typewiseSdk.ready) return
+      if (opts.aiProvider !== "offlineOnly" && !typewiseSdk.ready && !opts.apiToken) return
 
       try {
         const capitalize = text.length === 0 || isSentenceComplete(text)
-        const data = await typewiseSdk.findPredictions(text, capitalize)
+        const data = await this.getPrediction(text, capitalize)
         if (requestId !== this.predictionRequestId || !data) return
 
         const currentPos = view.state.selection.main.head

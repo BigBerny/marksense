@@ -2,18 +2,19 @@
  * Typewise AI integration for Tiptap.
  *
  * Corrections:
- *   - On word boundary (space/punctuation), calls the local Typewise SDK
- *     for spell-checking (autocorrection.correct).
+ *   - On word boundary (space/punctuation), calls either the local SDK or
+ *     the cloud API for spell-checking, depending on the `aiProvider` setting.
  *   - "auto" → replace word (preserving formatting) + blue underline (click to revert).
  *   - Click/hover on underline opens a CorrectionPopup (managed externally in React).
  *
  * Grammar:
- *   - Still uses the cloud API POST /grammar_correction/whole_text_grammar_correction.
+ *   - Uses the cloud API POST /grammar_correction/whole_text_grammar_correction.
+ *   - Disabled when aiProvider is "offlineOnly".
  *
  * Predictions:
- *   - On typing pause, calls the local SDK (predictions.findPredictions).
+ *   - On typing pause, calls either the local SDK or the cloud API.
  *   - Shows ghost text at cursor.
- *   - If typed chars match prediction prefix → advance overlap, skip SDK call.
+ *   - If typed chars match prediction prefix → advance overlap, skip call.
  *   - Tab to accept, Esc to dismiss.
  *
  * Cursor stability:
@@ -41,8 +42,13 @@ import {
   isInDictionary,
   isSentenceComplete,
   SENTENCE_END_PUNCTUATION,
+  apiCorrectWord,
+  apiSentenceComplete,
+  normalizeApiCorrection,
+  normalizeApiPrediction,
   type CorrectionEntry,
   type CorrectionSuggestion,
+  type AiProvider,
 } from "./typewise-api"
 import { typewiseSdk } from "./typewise-sdk-service"
 
@@ -64,6 +70,7 @@ export interface TypewisePluginState {
 interface TypewiseOptions {
   apiBaseUrl: string
   apiToken: string
+  aiProvider: AiProvider
   languages: string[]
   predictionDebounce: number
   autocorrect: boolean
@@ -163,6 +170,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     return {
       apiBaseUrl: "https://api.typewise.ai/v0",
       apiToken: "",
+      aiProvider: "offlinePreferred" as AiProvider,
       languages: ["en", "de", "fr"],
       predictionDebounce: 0,
       autocorrect: true,
@@ -243,14 +251,37 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       cachedGhostTextSpan = null
     }
 
-    // ── SDK: final word correction ──────────────────────────────────────
+    // ── Dual-provider: spell-check ─────────────────────────────────────
+
+    async function getCorrection(text: string) {
+      const { aiProvider } = opts
+      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+        const result = await typewiseSdk.correct(text)
+        if (result || aiProvider === "offlineOnly") return result
+      }
+      if (aiProvider === "apiPreferred" && opts.apiToken) {
+        const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiCorrection(apiResult)
+        // API failed — fall back to SDK
+        if (typewiseSdk.ready) return typewiseSdk.correct(text)
+        return null
+      }
+      // offlinePreferred fallback to API
+      if (opts.apiToken) {
+        const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiCorrection(apiResult)
+      }
+      return null
+    }
 
     async function checkFinalWord(sentenceText: string, blockStart: number) {
-      if (!opts.autocorrect || !typewiseSdk.ready) return
+      if (!opts.autocorrect) return
+      if (opts.aiProvider === "offlineOnly" && !typewiseSdk.ready) return
+      if (opts.aiProvider !== "offlineOnly" && !typewiseSdk.ready && !opts.apiToken) return
       if (isInConfiguredTable(tiptapEditor.state)) return
 
       try {
-        const data = await typewiseSdk.correct(sentenceText)
+        const data = await getCorrection(sentenceText)
         if (!data || tiptapEditor.isDestroyed) return
 
         const view = tiptapEditor.view
@@ -401,7 +432,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
     }
 
     async function checkGrammar(sentenceText: string, sentenceFrom: number, fullText: string) {
-      if (!opts.autocorrect || !opts.apiToken) return
+      if (!opts.autocorrect || !opts.apiToken || opts.aiProvider === "offlineOnly") return
       if (isInConfiguredTable(tiptapEditor.state)) return
 
       if (grammarAbort) grammarAbort.abort()
@@ -514,14 +545,37 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
       }, delay)
     }
 
-    // ── SDK: sentence completion ───────────────────────────────────────
+    // ── Dual-provider: sentence completion ────────────────────────────
+
+    async function getPrediction(text: string, capitalize: boolean) {
+      const { aiProvider } = opts
+      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+        const result = await typewiseSdk.findPredictions(text, capitalize)
+        if (result || aiProvider === "offlineOnly") return result
+      }
+      if (aiProvider === "apiPreferred" && opts.apiToken) {
+        const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiPrediction(apiResult)
+        // API failed — fall back to SDK
+        if (typewiseSdk.ready) return typewiseSdk.findPredictions(text, capitalize)
+        return null
+      }
+      // offlinePreferred fallback to API
+      if (opts.apiToken) {
+        const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
+        if (apiResult) return normalizeApiPrediction(apiResult)
+      }
+      return null
+    }
 
     async function fetchPrediction(text: string, cursorPos: number, requestId: number) {
-      if (!opts.predictions || !typewiseSdk.ready || text.trim().length < 3) return
+      if (!opts.predictions || text.trim().length < 3) return
+      if (opts.aiProvider === "offlineOnly" && !typewiseSdk.ready) return
+      if (opts.aiProvider !== "offlineOnly" && !typewiseSdk.ready && !opts.apiToken) return
 
       try {
         const capitalize = text.length === 0 || isSentenceComplete(text)
-        const data = await typewiseSdk.findPredictions(text, capitalize)
+        const data = await getPrediction(text, capitalize)
         if (requestId !== predictionRequestId) return
         if (!data || tiptapEditor.isDestroyed) return
 
@@ -554,7 +608,7 @@ export const TypewiseIntegration = Extension.create<TypewiseOptions>({
           })
         )
       } catch (err) {
-        console.debug("[Typewise SDK] prediction error:", err)
+        console.debug("[Typewise] prediction error:", err)
       }
     }
 

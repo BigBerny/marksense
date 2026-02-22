@@ -373,6 +373,7 @@ function MarkdownEditorInner() {
 
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
   const typewiseSdkBaseUri = window.__SETTINGS__?.typewiseSdkBaseUri || ""
+  const aiProvider = (window.__SETTINGS__?.aiProvider || "offlinePreferred") as import("./extensions/typewise-api").AiProvider
 
   // Initialize the Typewise SDK (local WASM-based spell-check & predictions)
   useEffect(() => {
@@ -399,13 +400,14 @@ function MarkdownEditorInner() {
   const sourceEditorExtensions = useMemo(() => [
     ...cmTypewise({
       apiToken: typewiseToken,
+      aiProvider,
       languages: ["en", "de", "fr"],
       autocorrect: true,
       predictions: true,
     }),
     markdownLinter,
     lintGutter(),
-  ], [typewiseToken])
+  ], [typewiseToken, aiProvider])
 
   // Buffer of recently sent content so we can detect echoed updates
   // (VS Code sends the content back after writing it to disk).
@@ -508,6 +510,7 @@ function MarkdownEditorInner() {
       // --- Typewise: autocorrection + inline predictions ---
       TypewiseIntegration.configure({
         apiToken: typewiseToken,
+        aiProvider,
         languages: ["en", "de", "fr"],
         autocorrect: true,
         predictions: true,

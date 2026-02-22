@@ -260,6 +260,8 @@ export class MarkdownEditorProvider
     const env = readEnvFile(this.context.extensionUri.fsPath);
     const typewiseToken =
       config.get<string>("typewiseToken", "") || env["TYPEWISE_TOKEN"] || "";
+    const aiProvider =
+      config.get<string>("aiProvider", "offlinePreferred") || "offlinePreferred";
     const autoSaveDelay = config.get<number>("autoSaveDelay", 300);
     const defaultFullWidth = config.get<boolean>("defaultFullWidth", false);
     const isGitRepo = isInsideGitRepo(document.uri.fsPath);
@@ -268,7 +270,7 @@ export class MarkdownEditorProvider
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { typewiseToken, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo }
+      { typewiseToken, aiProvider, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo }
     );
 
     // Send initial diff count after webview initializes
@@ -522,6 +524,7 @@ export class MarkdownEditorProvider
     initialContent: string,
     settings: {
       typewiseToken: string;
+      aiProvider: string;
       autoSaveDelay: number;
       defaultFullWidth: boolean;
       documentDirWebviewUri: string;

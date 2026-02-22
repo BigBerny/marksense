@@ -86,9 +86,9 @@
           {
             "id": "configureTypewise",
             "title": "Enable AI Features (Optional)",
-            "description": "For autocorrect, grammar correction, and sentence completion, add a [Typewise](https://www.typewise.app) API token.\n\nContact [apikey@typewise.app](mailto:apikey@typewise.app) to get a key, then paste it in settings.\n\n[Open Marksense Settings](command:workbench.action.openSettings?%5B%22marksense%22%5D)",
+            "description": "Autocorrect and predictions work offline by default. For cloud-based grammar correction, add a [Typewise](https://www.typewise.app) API token. You can also switch to cloud-first mode via the **AI Provider** setting.\n\nContact [apikey@typewise.app](mailto:apikey@typewise.app) to get a key, then paste it in settings.\n\n[Open Marksense Settings](command:workbench.action.openSettings?%5B%22marksense%22%5D)",
             "media": {
-              "markdown": "Without a token the extension works as a pure offline editor — no data leaves your machine."
+              "markdown": "Local models handle spell-check and predictions out of the box. Add an API token for grammar correction, or switch **AI Provider** to `apiPreferred` for cloud-first AI."
             }
           }
         ]
@@ -97,11 +97,23 @@
     "configuration": {
       "title": "Marksense",
       "properties": {
+        "marksense.aiProvider": {
+          "type": "string",
+          "enum": ["offlinePreferred", "apiPreferred", "offlineOnly"],
+          "default": "offlinePreferred",
+          "enumDescriptions": [
+            "Use local models when available, fall back to API if a token is set",
+            "Use Typewise cloud API when a token is set, fall back to local models",
+            "Only use local models — no network calls for corrections or predictions"
+          ],
+          "description": "Controls whether spell-check and predictions use local models (offline) or the Typewise cloud API.",
+          "markdownDescription": "Controls whether spell-check and predictions use **local models** (offline, WASM-based) or the **Typewise cloud API**.\n\n- `offlinePreferred` — Local models first, API fallback\n- `apiPreferred` — Cloud API first (requires token), local fallback\n- `offlineOnly` — No network calls at all (grammar correction disabled)"
+        },
         "marksense.typewiseToken": {
           "type": "string",
           "default": "",
-          "description": "Typewise API token for autocorrect, grammar correction, and sentence completion. Contact apikey@typewise.app to get a key.",
-          "markdownDescription": "API token for [Typewise](https://www.typewise.app) autocorrect, grammar correction, and sentence completion. Without a token these features are disabled and the extension works as a pure offline editor. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app)."
+          "description": "Typewise API token for cloud-based autocorrect, grammar correction, and sentence completion. Required when AI Provider is set to apiPreferred. Contact apikey@typewise.app to get a key.",
+          "markdownDescription": "API token for [Typewise](https://www.typewise.app) cloud-based autocorrect, grammar correction, and sentence completion. Required when **AI Provider** is set to `apiPreferred`. To get an API key, contact [apikey@typewise.app](mailto:apikey@typewise.app)."
         },
         "marksense.autoSaveDelay": {
           "type": "number",
