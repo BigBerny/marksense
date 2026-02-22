@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0 — 2026-02-22
+
+### Added
+
+- Add Source mode with CodeMirror integration for direct Markdown editing alongside the rich editor
+- Add MDX file support in table configuration workflows
+- Add text highlighting support in Source mode editing
+
+### Improved
+
+- Improve table management with the new TableConfig component
+- Improve TOC sidebar behavior and settings menu interactions for better document navigation
+- Improve frontmatter panel interactions and overall Markdown editor layout
+
 ## 1.3.0 — 2026-02-21
 
 ### Added
