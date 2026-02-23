@@ -186,6 +186,46 @@ export function restoreLeadingHtml(
   return htmlPrefix + "\n" + body
 }
 
+// ─── List blank-line normalization ───────────────────────────────────────────
+//
+// marked (CommonMark) requires a blank line before list markers when they
+// follow a paragraph.  Without it the list items are parsed as inline
+// continuation text.  This inserts the missing blank lines so the visual
+// editor renders lists correctly.
+
+/**
+ * Insert a blank line before list markers that directly follow a non-empty,
+ * non-list line.  Skips content inside fenced code blocks.
+ */
+export function normalizeListBlankLines(markdown: string): string {
+  const lines = markdown.split("\n")
+  const result: string[] = []
+  let inCodeBlock = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // Track fenced code block boundaries
+    if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
+      inCodeBlock = !inCodeBlock
+    }
+
+    if (
+      !inCodeBlock &&
+      i > 0 &&
+      /^\s*([-*+]|\d+\.)\s/.test(line) &&
+      lines[i - 1].trim() !== "" &&
+      !/^\s*([-*+]|\d+\.)\s/.test(lines[i - 1])
+    ) {
+      result.push("")
+    }
+
+    result.push(line)
+  }
+
+  return result.join("\n")
+}
+
 // ─── TableConfig tag handling ────────────────────────────────────────────────
 //
 // `<TableConfig ... />` tags (possibly multi-line) are handled first so they
@@ -273,9 +313,44 @@ const RAW_TEXT_DIV_RE =
 /**
  * Restore JSX tag lines from the `<div data-type="raw-text">` markers
  * that TipTap's markdown serialiser produces.
+ *
+ * Also strips blank lines that Tiptap's block separator (`\n\n`) inserts
+ * adjacent to JSX tag lines — these are serialisation artefacts and would
+ * accumulate on every round-trip.
  */
 export function unwrapJsxComponents(markdown: string): string {
-  return markdown.replace(RAW_TEXT_DIV_RE, (_match, encoded: string) => {
+  const unwrapped = markdown.replace(RAW_TEXT_DIV_RE, (_match, encoded: string) => {
     return htmlDecode(encoded)
   })
+  return normalizeJsxBlankLines(unwrapped)
+}
+
+/**
+ * Remove blank lines that are directly adjacent to a JSX tag line
+ * (opening, closing, or self-closing with an uppercase component name).
+ *
+ * Blank lines between non-JSX content lines are preserved.
+ */
+function normalizeJsxBlankLines(text: string): string {
+  const lines = text.split("\n")
+  const isJsxTag = (line: string) => /^\s*<\/?[A-Z]/.test(line)
+  const result: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() !== "") {
+      result.push(lines[i])
+      continue
+    }
+    // Blank line — skip if adjacent to a JSX tag line
+    const prevIsJsx = i > 0 && isJsxTag(lines[i - 1])
+    if (prevIsJsx) continue
+    // Look ahead past consecutive blanks to the next non-blank line
+    let nextIdx = i + 1
+    while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++
+    const nextIsJsx = nextIdx < lines.length && isJsxTag(lines[nextIdx])
+    if (nextIsJsx) continue
+    result.push(lines[i])
+  }
+
+  return result.join("\n")
 }

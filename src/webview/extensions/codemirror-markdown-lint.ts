@@ -6,7 +6,7 @@
  * single space after heading markers, file ends with newline.
  */
 
-import { linter, type Diagnostic } from "@codemirror/lint"
+import { linter, type Action, type Diagnostic } from "@codemirror/lint"
 
 interface LintRule {
   id: string
@@ -217,7 +217,7 @@ const rules: LintRule[] = [
     },
   },
 
-  // Code block should be surrounded by blank lines
+  // Code block should be preceded by a blank line
   {
     id: "MD031",
     check(_text, lines) {
@@ -228,7 +228,6 @@ const rules: LintRule[] = [
         const line = lines[i]
         if (isFencedCodeStart(line)) {
           if (!inCodeBlock) {
-            // Opening fence — check line before
             if (i > 0 && lines[i - 1].trim() !== "") {
               results.push({
                 line: i + 1,
@@ -238,8 +237,26 @@ const rules: LintRule[] = [
                 severity: "info",
               })
             }
-          } else {
-            // Closing fence — check line after
+          }
+          inCodeBlock = !inCodeBlock
+        }
+        pos += line.length + 1
+      }
+      return results
+    },
+  },
+
+  // Code block should be followed by a blank line
+  {
+    id: "MD031b",
+    check(_text, lines) {
+      const results: LintResult[] = []
+      let pos = 0
+      let inCodeBlock = false
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (isFencedCodeStart(line)) {
+          if (inCodeBlock) {
             if (i + 1 < lines.length && lines[i + 1].trim() !== "") {
               results.push({
                 line: i + 1,
@@ -283,6 +300,12 @@ const rules: LintRule[] = [
   },
 ]
 
+/** Rule IDs where the fix is: insert a blank line BEFORE the flagged line. */
+const PRECEDED_RULES = new Set(["MD022", "MD028", "MD031", "MD032"])
+
+/** Rule IDs where the fix is: insert a blank line AFTER the flagged line. */
+const FOLLOWED_RULES = new Set(["MD022b", "MD031b", "MD032b"])
+
 export const markdownLinter = linter(
   (view) => {
     const text = view.state.doc.toString()
@@ -295,11 +318,62 @@ export const markdownLinter = linter(
         const from = Math.min(r.from, text.length)
         const to = Math.min(Math.max(r.to, from), text.length)
         if (from === to) continue
+
+        const actions: Action[] = []
+
+        if (PRECEDED_RULES.has(rule.id)) {
+          actions.push({
+            name: "Fix",
+            apply(view, from) {
+              view.dispatch({ changes: { from, insert: "\n" } })
+            },
+          })
+        } else if (FOLLOWED_RULES.has(rule.id)) {
+          actions.push({
+            name: "Fix",
+            apply(view, _from, to) {
+              const line = view.state.doc.lineAt(to)
+              const insertPos = Math.min(line.to + 1, view.state.doc.length)
+              view.dispatch({ changes: { from: insertPos, insert: "\n" } })
+            },
+          })
+        }
+
+        if (rule.id === "MD009") {
+          actions.push({
+            name: "Fix",
+            apply(view, from, to) {
+              view.dispatch({ changes: { from, to, insert: "" } })
+            },
+          })
+        }
+
+        if (rule.id === "MD012") {
+          actions.push({
+            name: "Fix",
+            apply(view, from) {
+              const line = view.state.doc.lineAt(from)
+              const deleteTo = Math.min(line.to + 1, view.state.doc.length)
+              view.dispatch({ changes: { from: line.from, to: deleteTo } })
+            },
+          })
+        }
+
+        if (rule.id === "MD019") {
+          actions.push({
+            name: "Fix",
+            apply(view, from, to) {
+              view.dispatch({ changes: { from, to, insert: " " } })
+            },
+          })
+        }
+
         diagnostics.push({
           from,
           to,
           message: `${rule.id}: ${r.message}`,
           severity: r.severity,
+          ...(actions.length > 0 ? { actions } : {}),
         })
       }
     }

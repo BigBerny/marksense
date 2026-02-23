@@ -108,6 +108,7 @@ import {
   restoreLeadingHtml,
   wrapJsxComponents,
   unwrapJsxComponents,
+  normalizeListBlankLines,
   type FrontmatterEntry,
 } from "./frontmatterUtils"
 import { extractTableBlocks, preserveTableFormatting } from "./tableFormatUtils"
@@ -331,7 +332,7 @@ function MarkdownEditorInner() {
     const { htmlPrefix: rawPrefix, body: strippedBody } = extractLeadingHtml(
       parsed.body
     )
-    const wrapped = wrapJsxComponents(strippedBody)
+    const wrapped = normalizeListBlankLines(wrapJsxComponents(strippedBody))
     return {
       ...parsed,
       rawPrefix,
@@ -343,6 +344,7 @@ function MarkdownEditorInner() {
   const [currentMarkdown, setCurrentMarkdown] = useState(
     window.__INITIAL_CONTENT__ || ""
   )
+  const currentMarkdownRef = useRef(window.__INITIAL_CONTENT__ || "")
   const [frontmatter, setFrontmatter] = useState<FrontmatterEntry[] | null>(
     initialParsed.frontmatter
   )
@@ -542,6 +544,7 @@ function MarkdownEditorInner() {
           restoredBody,
           rawFrontmatterRef.current
         )
+        currentMarkdownRef.current = full
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
@@ -658,6 +661,7 @@ function MarkdownEditorInner() {
         // the cursor position and cause a visible flicker.
         if (sentToHostBufferRef.current.has(message.content)) {
           sentToHostBufferRef.current.delete(message.content)
+          currentMarkdownRef.current = message.content
           setCurrentMarkdown(message.content)
           return
         }
@@ -669,7 +673,7 @@ function MarkdownEditorInner() {
         originalTablesRef.current = extractTableBlocks(strippedBody)
 
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(strippedBody),
+          normalizeListBlankLines(wrapJsxComponents(strippedBody)),
           documentDirWebviewUri
         )
 
@@ -687,6 +691,7 @@ function MarkdownEditorInner() {
           contentType: "markdown",
           emitUpdate: false,
         })
+        currentMarkdownRef.current = message.content
         setCurrentMarkdown(message.content)
         editor.view.dispatch = origDispatch
 
@@ -731,23 +736,37 @@ function MarkdownEditorInner() {
     if (!editor || editor.isDestroyed) return
 
     if (!sourceMode) {
-      // Entering source mode: show the full file content (frontmatter + body)
-      // with relative image paths (not webview URIs).
-      // @ts-ignore — getMarkdown available via @tiptap/markdown
-      const md = editor.getMarkdown().replace(/&nbsp;/g, " ")
-      const bodyWithRelPaths = unresolveImageUrls(
-        unwrapJsxComponents(md),
-        documentDirWebviewUri
-      )
-      const restoredBody = restoreLeadingHtml(
-        rawPrefixRef.current,
-        preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
-      )
-      const full = serializeFrontmatter(
-        frontmatterRef.current,
-        restoredBody,
-        rawFrontmatterRef.current
-      )
+      // Entering source mode: use the raw file content so that line numbers
+      // match the actual file on disk (avoids lossy Tiptap round-trip that
+      // drops unknown HTML elements like <analysis_guidelines>).
+      // Flush any pending debounced edits first so the ref is up to date.
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current)
+        debounceTimer.current = null
+        // @ts-ignore — getMarkdown available via @tiptap/markdown
+        const md = editor.getMarkdown().replace(/&nbsp;/g, " ")
+        const bodyWithRelPaths = unresolveImageUrls(
+          unwrapJsxComponents(md),
+          documentDirWebviewUri
+        )
+        const restoredBody = restoreLeadingHtml(
+          rawPrefixRef.current,
+          preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
+        )
+        const full = serializeFrontmatter(
+          frontmatterRef.current,
+          restoredBody,
+          rawFrontmatterRef.current
+        )
+        currentMarkdownRef.current = full
+        setCurrentMarkdown(full)
+        sentToHostBufferRef.current.add(full)
+        if (sentToHostBufferRef.current.size > 10) {
+          sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value!)
+        }
+        vscode.postMessage({ type: "edit", content: full })
+      }
+      const full = currentMarkdownRef.current
       setSourceContent(full)
       sourceContentOriginal.current = full
     } else {
@@ -760,7 +779,7 @@ function MarkdownEditorInner() {
         setRawPrefix(newRawPrefix)
         originalTablesRef.current = extractTableBlocks(strippedBody)
         const processedBody = resolveImageUrls(
-          wrapJsxComponents(strippedBody),
+          normalizeListBlankLines(wrapJsxComponents(strippedBody)),
           documentDirWebviewUri
         )
         setFrontmatter(parsed.frontmatter)
@@ -808,6 +827,7 @@ function MarkdownEditorInner() {
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
         const full = serializeFrontmatter(entries, restoredBody, null)
+        currentMarkdownRef.current = full
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
@@ -844,6 +864,7 @@ function MarkdownEditorInner() {
           restoredBody,
           rawFrontmatterRef.current
         )
+        currentMarkdownRef.current = full
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
         if (sentToHostBufferRef.current.size > 10) {
