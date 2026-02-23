@@ -526,7 +526,7 @@ function MarkdownEditorInner() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
-        const md = ed.getMarkdown()
+        const md = ed.getMarkdown().replace(/&nbsp;/g, " ")
         // Restore JSX blocks, leading HTML blocks, convert webview URIs
         // to relative paths, and prepend frontmatter before syncing.
         const bodyWithRelPaths = unresolveImageUrls(
@@ -734,7 +734,7 @@ function MarkdownEditorInner() {
       // Entering source mode: show the full file content (frontmatter + body)
       // with relative image paths (not webview URIs).
       // @ts-ignore — getMarkdown available via @tiptap/markdown
-      const md = editor.getMarkdown()
+      const md = editor.getMarkdown().replace(/&nbsp;/g, " ")
       const bodyWithRelPaths = unresolveImageUrls(
         unwrapJsxComponents(md),
         documentDirWebviewUri
@@ -798,7 +798,7 @@ function MarkdownEditorInner() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
-        const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const md = editor && !editor.isDestroyed ? editor.getMarkdown().replace(/&nbsp;/g, " ") : ""
         const bodyWithRelPaths = unresolveImageUrls(
           unwrapJsxComponents(md),
           documentDirWebviewUri
@@ -830,7 +830,7 @@ function MarkdownEditorInner() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
-        const md = editor && !editor.isDestroyed ? editor.getMarkdown() : ""
+        const md = editor && !editor.isDestroyed ? editor.getMarkdown().replace(/&nbsp;/g, " ") : ""
         const bodyWithRelPaths = unresolveImageUrls(
           unwrapJsxComponents(md),
           documentDirWebviewUri
