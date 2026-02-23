@@ -63,7 +63,9 @@ const webviewConfig = {
 
 // ── Copy Typewise SDK assets to dist/typewise-sdk/ ─────────────────────────
 // The SDK needs WASM, Web Workers, and language resource files served as
-// static assets.  Resource files live in an external directory with
+// static assets.  Global config files (company_config, global_library_settings,
+// language_modelling_settings) are maintained as fixed assets in src/resources/.
+// Model and dictionary resources are copied from an external directory with
 // versioned subdirectories (set TYPEWISE_MODELS_DIR or place at
 // ../superhumanmodels).  The build scans all versions, picks the latest
 // copy of each file, and only copies resources for the target languages.
@@ -134,19 +136,20 @@ function resolveModelsHubDir() {
   return null;
 }
 
+const FIXED_ASSET_CONFIGS = [
+  "company_config.json",
+  "global_library_settings.json",
+  "language_modelling_settings.json",
+];
+
 /** Check whether a resource name is needed for TARGET_LANGUAGES. */
 function isRelevantResource(name) {
-  const GLOBAL = [
-    "company_config.json",
-    "global_library_settings.json",
-    "language_modelling_settings.json",
-  ];
-  if (GLOBAL.includes(name)) return true;
+  if (FIXED_ASSET_CONFIGS.includes(name)) return false;
   if (name.includes("charvocab")) return true;
   if (name.startsWith("l=all_")) return true;
 
-  // Prediction model directories (l=en-c=superhuman-...) are large and
-  // handled separately via language_modelling_settings.json (step 3).
+  // Prediction model directories (l=en-c=...) are large and handled
+  // separately via language_modelling_settings.json (step 5).
   if (/^l=\w+-c=/.test(name)) return false;
 
   for (const lang of TARGET_LANGUAGES) {
@@ -172,7 +175,18 @@ function copyTypewiseSdkAssets() {
   copyFileSync(path.join(SDK_PKG, "tf-js-web-worker-predictions.js"), path.join(dest, "tf-js-web-worker-predictions.js"));
   console.log("[build] Typewise SDK static assets copied");
 
-  // 2. Resource files from external models directory
+  // 2. Fixed config assets from src/resources/
+  const fixedAssetsDir = path.resolve(__dirname, "src/resources");
+  const resourcesDest = path.join(dest, "resources");
+  for (const name of FIXED_ASSET_CONFIGS) {
+    const src = path.join(fixedAssetsDir, name);
+    if (fs.existsSync(src)) {
+      copyFileSync(src, path.join(resourcesDest, name));
+    }
+  }
+  console.log("[build] Fixed config assets copied from src/resources/");
+
+  // 3. Model & dictionary resources from external models directory
   const modelsDir = resolveModelsDir();
   if (!modelsDir) {
     console.warn(
@@ -196,7 +210,6 @@ function copyTypewiseSdkAssets() {
     });
 
   // Scan all versions newest-first; first occurrence of each resource wins.
-  const resourcesDest = path.join(dest, "resources");
   /** @type {Set<string>} already-copied resource names */
   const seen = new Set();
   let copied = 0;
@@ -227,29 +240,7 @@ function copyTypewiseSdkAssets() {
     `for [${TARGET_LANGUAGES.join(", ")}] from ${modelsDir}`
   );
 
-  // 3a. Patch company_config.json: enable predictions for all target
-  //     languages.  The upstream config only enables predictions for "en";
-  //     our code falls back to the English model for other languages so the
-  //     SDK must not short-circuit before we get a chance to call it.
-  const ccPath = path.join(resourcesDest, "company_config.json");
-  if (fs.existsSync(ccPath)) {
-    try {
-      const cc = JSON.parse(fs.readFileSync(ccPath, "utf-8"));
-      let ccPatched = false;
-      for (const lang of TARGET_LANGUAGES) {
-        if (cc.languages?.[lang] && !cc.languages[lang].prediction?.enabled) {
-          cc.languages[lang].prediction = { enabled: true };
-          ccPatched = true;
-        }
-      }
-      if (ccPatched) {
-        fs.writeFileSync(ccPath, JSON.stringify(cc, null, 2) + "\n");
-        console.log("[build]   ~ patched company_config.json (enabled predictions for all target languages)");
-      }
-    } catch { /* best-effort */ }
-  }
-
-  // 3b. Patch language_modelling_settings.json: set the English prediction
+  // 4. Patch language_modelling_settings.json: set the English prediction
   //     model to the TFLite model, remove non-English prediction entries
   //     (they fall back to the API), and add missing SDK fields.
   const lmsPath = path.join(resourcesDest, "language_modelling_settings.json");
@@ -261,9 +252,9 @@ function copyTypewiseSdkAssets() {
         lms.use_unknown_in_language_detection = true;
       }
 
-      // Set English prediction model to the TFLite model
-      if (lms.lang_to_model_names) {
-        lms.lang_to_model_names.en = {
+      if (!lms.lang_to_model_names) lms.lang_to_model_names = {};
+
+      lms.lang_to_model_names.en = {
           word_completion_model_name: EN_PREDICTION_MODEL,
           sentence_completion_model_name: EN_PREDICTION_MODEL,
           sentence_completion_combination_model_settings: {
@@ -273,13 +264,9 @@ function copyTypewiseSdkAssets() {
           }
         };
 
-        // Remove non-English prediction entries — other languages fall back
-        // to the API.  The SDK still autocorrects via v*_API_xx models and
-        // dictionaries.
-        for (const lang of Object.keys(lms.lang_to_model_names)) {
-          if (lang === "en") continue;
-          delete lms.lang_to_model_names[lang];
-        }
+      for (const lang of Object.keys(lms.lang_to_model_names)) {
+        if (lang === "en") continue;
+        delete lms.lang_to_model_names[lang];
       }
 
       fs.writeFileSync(lmsPath, JSON.stringify(lms, null, 2) + "\n");
@@ -287,7 +274,7 @@ function copyTypewiseSdkAssets() {
     } catch { /* best-effort */ }
   }
 
-  // 4. Copy prediction model directories referenced by
+  // 5. Copy prediction model directories referenced by
   //    language_modelling_settings.json (only for TARGET_LANGUAGES).
   //    Models are looked up first in models_hub, then in the versioned
   //    superhumanmodels directories.

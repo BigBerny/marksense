@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1 — 2026-02-23
+
+### Improved
+
+- Reduce extension file size by limiting bundled Typewise languages to English and German
+- Optimize SDK asset copying with selective file inclusion
+
 ## 3.0.0 — 2026-02-23
 
 ### Added
