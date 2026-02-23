@@ -303,6 +303,13 @@
      Narrow screens: hover-reveal behavior
      ========================= */
   @media screen and (max-width: 1279px) {
+    /* Fixed positioning: consistent right-edge placement regardless of grid column width */
+    &-wrapper {
+      position: fixed;
+      right: 0;
+      top: 130px;
+    }
+
     /* Pointer-hover devices */
     @media (hover: hover) {
       &-wrapper:hover &-nav {
