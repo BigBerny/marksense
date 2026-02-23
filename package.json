@@ -50,7 +50,7 @@
             "filenamePattern": "*.markdown"
           }
         ],
-        "priority": "option"
+        "priority": "default"
       }
     ],
     "walkthroughs": [
@@ -78,9 +78,9 @@
           {
             "id": "setDefault",
             "title": "Make Marksense the Default Editor",
-            "description": "To always open ``.md`` files with Marksense, add this to your settings:\n```json\n\"workbench.editorAssociations\": {\n  \"*.md\": \"marksense.editor\"\n}\n```\n\n[Open Settings (JSON)](command:workbench.action.openSettingsJson)",
+            "description": "Marksense is now the default editor for Markdown files. You can always switch back via **Reopen Editor With…** in the tab context menu.\n\n**Tip:** Avoid setting ``workbench.editorAssociations`` for ``*.md`` — it overrides diff views too.\n\n[Open Settings (JSON)](command:workbench.action.openSettingsJson)",
             "media": {
-              "markdown": "Right-click the tab → **Reopen Editor With…** → **Marksense Editor** → click **Configure default editor for '*.md'…** at the bottom of the picker."
+              "markdown": "Marksense opens ``.md`` files by default. Right-click any tab → **Reopen Editor With…** to switch editors on a per-file basis."
             }
           },
           {
