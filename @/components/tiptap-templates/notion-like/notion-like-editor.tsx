@@ -92,6 +92,7 @@ import {
   useToc,
 } from "@/components/tiptap-node/toc-node/context/toc-context"
 import { ListNormalizationExtension } from "@/components/tiptap-extension/list-normalization-extension"
+import { useThemeToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-theme-toggle"
 
 export interface NotionEditorProps {
   room: string
@@ -187,9 +188,20 @@ export function EditorProvider(props: EditorProviderProps) {
 
   const { user } = useUser()
   const { setTocContent } = useToc()
+  const { theme } = useThemeToggle()
 
-  // Auto-sync .dark class with the environment (VS Code body class or system preference)
+  // Sync .dark class with theme preference (manual override or auto-detect from environment)
   useEffect(() => {
+    if (theme === "light") {
+      document.documentElement.classList.remove("dark")
+      return
+    }
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark")
+      return
+    }
+
+    // theme === "auto": sync with VS Code body class or system preference
     const isVscode =
       document.body.classList.contains("vscode-dark") ||
       document.body.classList.contains("vscode-light") ||
@@ -213,7 +225,7 @@ export function EditorProvider(props: EditorProviderProps) {
     sync()
     mq.addEventListener("change", sync)
     return () => mq.removeEventListener("change", sync)
-  }, [])
+  }, [theme])
 
   const editor = useEditor({
     immediatelyRender: false,

@@ -87,9 +87,8 @@ body,
     }
   }
 
-  // Source editor needs more horizontal space than rich text
   &[data-source-mode] {
-    --content-width: minmax(0, 960px);
+    --content-width: minmax(0, 780px);
     --margin-left-width: minmax(16px, 0.3fr);
     --margin-right-width: minmax(32px, 1fr);
   }

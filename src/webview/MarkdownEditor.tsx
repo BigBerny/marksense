@@ -261,8 +261,7 @@ function MarkdownEditorContent({
           keywords: ["metadata", "frontmatter", "yaml", "meta"],
           badge: MetadataIcon,
           group: "Insert",
-          onSelect: ({ editor: ed, range }: { editor: any; range: any }) => {
-            ed.chain().focus().deleteRange(range).run()
+          onSelect: () => {
             onAddMetadata()
           },
         },

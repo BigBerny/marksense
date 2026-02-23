@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react"
+import { createPortal } from "react-dom"
 import { useWidthToggle } from "@/components/tiptap-templates/notion-like/notion-like-editor-width-toggle"
+import { useThemeToggle, type ThemePreference } from "@/components/tiptap-templates/notion-like/notion-like-editor-theme-toggle"
 
 // --- UI Primitives ---
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -30,55 +32,84 @@ function EllipsisIcon({ className }: { className?: string }) {
   )
 }
 
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  )
+// ─── Segmented control ───────────────────────────────────────────────────────
+
+interface SegmentOption<T extends string> {
+  value: T
+  label: string
 }
 
-// ─── Mode toggle (segmented control) ─────────────────────────────────────────
+function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  options: SegmentOption<T>[]
+  value: T
+  onChange: (v: T) => void
+  ariaLabel: string
+}) {
+  const activeIndex = options.findIndex((opt) => opt.value === value)
+  const indicatorRef = useRef<HTMLDivElement>(null)
+  const prevIndexRef = useRef(activeIndex)
 
-function ModeToggle({ sourceMode, onToggle }: { sourceMode: boolean; onToggle: () => void }) {
+  // Position indicator immediately on mount (no animation)
+  useLayoutEffect(() => {
+    const el = indicatorRef.current
+    if (!el) return
+    el.style.transform = `translateX(${activeIndex * 100}%)`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Animate to new position using Web Animations API with explicit keyframes
+  useEffect(() => {
+    const el = indicatorRef.current
+    if (!el) return
+    const prev = prevIndexRef.current
+    prevIndexRef.current = activeIndex
+    if (prev === activeIndex) return
+    el.animate(
+      [
+        { transform: `translateX(${prev * 100}%)` },
+        { transform: `translateX(${activeIndex * 100}%)` },
+      ],
+      { duration: 250, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)" },
+    )
+    el.style.transform = `translateX(${activeIndex * 100}%)`
+  }, [activeIndex])
+
   return (
-    <div className="mode-toggle" role="radiogroup" aria-label="Editor mode">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={!sourceMode}
-        className="mode-toggle-segment"
-        data-active={!sourceMode ? "" : undefined}
-        onClick={() => sourceMode && onToggle()}
-      >
-        Visual
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={sourceMode}
-        className="mode-toggle-segment"
-        data-active={sourceMode ? "" : undefined}
-        onClick={() => !sourceMode && onToggle()}
-      >
-        Markdown
-      </button>
+    <div
+      className="segmented-control"
+      role="radiogroup"
+      aria-label={ariaLabel}
+    >
+      <div
+        ref={indicatorRef}
+        className="segmented-control-indicator"
+        style={{
+          width: `calc((100% - 4px) / ${options.length})`,
+        }}
+      />
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="radio"
+          aria-checked={value === opt.value}
+          className="segmented-control-segment"
+          data-active={value === opt.value ? "" : undefined}
+          onClick={() => value !== opt.value && onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   )
 }
 
-// ─── Settings menu (custom dropdown) ─────────────────────────────────────────
+// ─── Settings menu (custom dropdown, portaled to body) ───────────────────────
 
 let globalSettingsOpen = false
 
@@ -90,25 +121,51 @@ function SettingsMenu({
   onToggleSourceMode?: () => void
 }) {
   const { isWide, toggle: toggleWidth } = useWidthToggle()
+  const { theme, setTheme } = useThemeToggle()
   const [open, setOpen] = useState(globalSettingsOpen)
   const [wasAlreadyOpen] = useState(globalSettingsOpen)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
 
   useEffect(() => {
     globalSettingsOpen = open
   }, [open])
 
+  // Calculate menu position from button rect
+  const updateMenuPos = useCallback(() => {
+    if (!buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    setMenuPos({
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    })
+  }, [])
+
   useEffect(() => {
+    if (!open) return
+    updateMenuPos()
+    window.addEventListener("resize", updateMenuPos)
+    return () => window.removeEventListener("resize", updateMenuPos)
+  }, [open, updateMenuPos])
+
+  useEffect(() => {
+    if (!open) return
+
     const handleDocumentClick = (e: MouseEvent) => {
-      if (open && containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
+      const target = e.target as Node
+      if (
+        buttonRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      ) {
+        return
       }
+      setOpen(false)
     }
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (open && e.key === "Escape") {
-        setOpen(false)
-      }
+      if (e.key === "Escape") setOpen(false)
     }
+
     document.addEventListener("mousedown", handleDocumentClick)
     document.addEventListener("keydown", handleKeyDown)
     return () => {
@@ -123,9 +180,72 @@ function SettingsMenu({
     onToggleSourceMode()
   }
 
+  const menu = open && menuPos && createPortal(
+    <div
+      ref={menuRef}
+      className="editor-settings-menu tiptap-popover"
+      style={{
+        position: "fixed",
+        top: menuPos.top,
+        right: menuPos.right,
+        zIndex: 10000,
+        transformOrigin: "top right",
+        animation: wasAlreadyOpen
+          ? "none"
+          : "fadeIn 150ms cubic-bezier(0.16, 1, 0.3, 1), zoomIn 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      {onToggleSourceMode && (
+        <div className="editor-settings-row">
+          <span className="editor-settings-label">Mode</span>
+          <SegmentedControl
+            options={[
+              { value: "visual", label: "Visual" },
+              { value: "markdown", label: "Markdown" },
+            ]}
+            value={sourceMode ? "markdown" : "visual"}
+            onChange={(v) => {
+              if ((v === "markdown") !== sourceMode) handleModeToggle()
+            }}
+            ariaLabel="Editor mode"
+          />
+        </div>
+      )}
+      <div className="editor-settings-row">
+        <span className="editor-settings-label">Theme</span>
+        <SegmentedControl
+          options={[
+            { value: "light" as ThemePreference, label: "Light" },
+            { value: "dark" as ThemePreference, label: "Dark" },
+            { value: "auto" as ThemePreference, label: "Auto" },
+          ]}
+          value={theme}
+          onChange={setTheme}
+          ariaLabel="Theme preference"
+        />
+      </div>
+      <div className="editor-settings-row">
+        <span className="editor-settings-label">Width</span>
+        <SegmentedControl
+          options={[
+            { value: "default", label: "Default" },
+            { value: "wide", label: "Wide" },
+          ]}
+          value={isWide ? "wide" : "default"}
+          onChange={(v) => {
+            if ((v === "wide") !== isWide) toggleWidth()
+          }}
+          ariaLabel="Editor width"
+        />
+      </div>
+    </div>,
+    document.body,
+  )
+
   return (
-    <div ref={containerRef} style={{ position: "relative", display: "inline-flex" }}>
+    <>
       <Button
+        ref={buttonRef}
         type="button"
         data-style="ghost"
         aria-label="Editor settings"
@@ -136,43 +256,8 @@ function SettingsMenu({
       >
         <EllipsisIcon className="tiptap-button-icon" />
       </Button>
-
-      {open && (
-        <div
-          className="editor-settings-menu tiptap-popover"
-          style={{
-            position: "absolute",
-            top: "100%",
-            right: 0,
-            marginTop: "6px",
-            zIndex: 100,
-            transformOrigin: "top right",
-            animation: wasAlreadyOpen 
-              ? "none" 
-              : "fadeIn 150ms cubic-bezier(0.16, 1, 0.3, 1), zoomIn 150ms cubic-bezier(0.16, 1, 0.3, 1)"
-          }}
-        >
-          {onToggleSourceMode && (
-            <div className="editor-settings-row">
-              <span className="editor-settings-label">Mode</span>
-              <ModeToggle sourceMode={sourceMode} onToggle={handleModeToggle} />
-            </div>
-          )}
-          <div className="editor-settings-row">
-            <span className="editor-settings-label">Full width</span>
-            <button
-              type="button"
-              className="editor-settings-check"
-              role="switch"
-              aria-checked={isWide}
-              onClick={toggleWidth}
-            >
-              {isWide && <CheckIcon />}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+      {menu}
+    </>
   )
 }
 
