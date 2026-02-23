@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.0 — 2026-02-23
+
+### Added
+
+- Add offline Typewise SDK integration for spell-check and sentence predictions in both rich and source editors
+- Add AI provider settings to configure spell-check and prediction behavior per workspace
+- Add multi-language support for Typewise corrections
+
+### Improved
+
+- Improve slash command dropdown menu with better styling, keyboard navigation, and usage tracking
+- Improve TOC sidebar with fixed positioning on narrow screens and enhanced mouse-tracking navigation
+- Improve editor header with segmented control and theme toggle
+- Improve list blank-line normalization and JSX blank-line handling in Markdown output
+
+### Fixed
+
+- Fix non-breaking spaces appearing in Markdown output
+
 ## 2.0.0 — 2026-02-22
 
 ### Added

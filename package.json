@@ -2,7 +2,7 @@
   "name": "marksense",
   "displayName": "Marksense",
   "description": "A beautiful Notion-like Markdown editor for VS Code, powered by Tiptap — with AI assistance, slash commands, and rich formatting",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "publisher": "janisberneker",
   "license": "MIT",
   "repository": {
@@ -99,7 +99,11 @@
       "properties": {
         "marksense.aiProvider": {
           "type": "string",
-          "enum": ["offlinePreferred", "apiPreferred", "offlineOnly"],
+          "enum": [
+            "offlinePreferred",
+            "apiPreferred",
+            "offlineOnly"
+          ],
           "default": "offlinePreferred",
           "enumDescriptions": [
             "Use local models when available, fall back to API if a token is set",
