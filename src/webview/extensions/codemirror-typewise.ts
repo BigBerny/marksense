@@ -417,8 +417,8 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
           this.lastInput = insertedText
           const lastChar = insertedText[insertedText.length - 1]
 
-          // Check final word on word boundary (uses local SDK)
-          if (opts.autocorrect && typewiseSdk.ready && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
+          // Check final word on word boundary
+          if (opts.autocorrect && /[\s.,;:!?\-)\]}>]/.test(lastChar)) {
             const { text, blockStart } = getTextBeforeCursor(update.state)
             if (text.trim().length >= 2) {
               this.checkFinalWord(update.view, text, blockStart)
@@ -458,15 +458,15 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
             }
           }
 
-          // Schedule prediction (uses local SDK)
-          if (opts.predictions && typewiseSdk.ready) {
+          // Schedule prediction
+          if (opts.predictions) {
             this.schedulePrediction(update.view)
           }
         }
       }
 
       // ── Spell-check when cursor moves to a different word ─────
-      if (opts.autocorrect && typewiseSdk.ready) {
+      if (opts.autocorrect) {
         const prevAnchor = update.startState.selection.main.head
         const newAnchor = update.state.selection.main.head
         if (prevAnchor !== newAnchor) {
@@ -485,7 +485,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
 
       // ── Idle spell-check: check current word after 5 s ────────
       if (this.idleSpellTimer) clearTimeout(this.idleSpellTimer)
-      if (opts.autocorrect && typewiseSdk.ready) {
+      if (opts.autocorrect) {
         const view = update.view
         this.idleSpellTimer = setTimeout(() => {
           const state = view.state

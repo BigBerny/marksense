@@ -109,7 +109,10 @@ import {
   wrapJsxComponents,
   unwrapJsxComponents,
   normalizeListBlankLines,
+  extractJsxContentBlocks,
+  preserveJsxFormatting,
   type FrontmatterEntry,
+  type JsxContentBlock,
 } from "./frontmatterUtils"
 import { extractTableBlocks, preserveTableFormatting } from "./tableFormatUtils"
 import { FrontmatterPanel } from "./components/FrontmatterPanel"
@@ -361,6 +364,10 @@ function MarkdownEditorInner() {
   const originalTablesRef = useRef<string[]>(
     extractTableBlocks(initialParsed.strippedBody)
   )
+  // Preserve original JSX content indentation (same pattern as table preservation)
+  const jsxContentRef = useRef<JsxContentBlock[]>(
+    extractJsxContentBlocks(initialParsed.strippedBody)
+  )
 
   const [sourceMode, setSourceMode] = useState(() => {
     const state = vscode.getState() as Record<string, unknown> | undefined
@@ -531,8 +538,10 @@ function MarkdownEditorInner() {
         const md = ed.getMarkdown().replace(/&nbsp;/g, " ")
         // Restore JSX blocks, leading HTML blocks, convert webview URIs
         // to relative paths, and prepend frontmatter before syncing.
+        const unwrapped = unwrapJsxComponents(md)
+        const jsxPreserved = preserveJsxFormatting(unwrapped, jsxContentRef.current)
         const bodyWithRelPaths = unresolveImageUrls(
-          unwrapJsxComponents(md),
+          jsxPreserved,
           documentDirWebviewUri
         )
         const restoredBody = restoreLeadingHtml(
@@ -671,6 +680,7 @@ function MarkdownEditorInner() {
         rawPrefixRef.current = newRawPrefix
         setRawPrefix(newRawPrefix)
         originalTablesRef.current = extractTableBlocks(strippedBody)
+        jsxContentRef.current = extractJsxContentBlocks(strippedBody)
 
         const processedBody = resolveImageUrls(
           normalizeListBlankLines(wrapJsxComponents(strippedBody)),
@@ -745,8 +755,10 @@ function MarkdownEditorInner() {
         debounceTimer.current = null
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor.getMarkdown().replace(/&nbsp;/g, " ")
+        const unwrapped = unwrapJsxComponents(md)
+        const jsxPreserved = preserveJsxFormatting(unwrapped, jsxContentRef.current)
         const bodyWithRelPaths = unresolveImageUrls(
-          unwrapJsxComponents(md),
+          jsxPreserved,
           documentDirWebviewUri
         )
         const restoredBody = restoreLeadingHtml(
@@ -778,6 +790,7 @@ function MarkdownEditorInner() {
         rawPrefixRef.current = newRawPrefix
         setRawPrefix(newRawPrefix)
         originalTablesRef.current = extractTableBlocks(strippedBody)
+        jsxContentRef.current = extractJsxContentBlocks(strippedBody)
         const processedBody = resolveImageUrls(
           normalizeListBlankLines(wrapJsxComponents(strippedBody)),
           documentDirWebviewUri
@@ -818,8 +831,10 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown().replace(/&nbsp;/g, " ") : ""
+        const unwrapped = unwrapJsxComponents(md)
+        const jsxPreserved = preserveJsxFormatting(unwrapped, jsxContentRef.current)
         const bodyWithRelPaths = unresolveImageUrls(
-          unwrapJsxComponents(md),
+          jsxPreserved,
           documentDirWebviewUri
         )
         const restoredBody = restoreLeadingHtml(
@@ -851,8 +866,10 @@ function MarkdownEditorInner() {
       debounceTimer.current = setTimeout(() => {
         // @ts-ignore — getMarkdown available via @tiptap/markdown
         const md = editor && !editor.isDestroyed ? editor.getMarkdown().replace(/&nbsp;/g, " ") : ""
+        const unwrapped = unwrapJsxComponents(md)
+        const jsxPreserved = preserveJsxFormatting(unwrapped, jsxContentRef.current)
         const bodyWithRelPaths = unresolveImageUrls(
-          unwrapJsxComponents(md),
+          jsxPreserved,
           documentDirWebviewUri
         )
         const restoredBody = restoreLeadingHtml(

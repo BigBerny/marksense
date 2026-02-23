@@ -18,19 +18,6 @@ function htmlDecode(str: string): string {
 }
 
 /**
- * HTML-encode a string for safe use in a node attribute.
- */
-function htmlEncode(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\n/g, "&#10;")
-    .replace(/\r/g, "&#13;")
-}
-
-/**
  * Renders a raw text block: an editable textarea showing the raw JSX tag
  * content, with a "Raw text" header.  Used by the `rawText` atom node.
  */
@@ -58,7 +45,6 @@ export function RawTextBlock({ node, updateAttributes }: NodeViewProps) {
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value
-      const newEncoded = htmlEncode(newValue)
 
       // Re-parse config if this is a TableConfig tag
       let config = "{}"
@@ -70,7 +56,9 @@ export function RawTextBlock({ node, updateAttributes }: NodeViewProps) {
         }
       }
 
-      updateAttributes({ tag: newEncoded, config })
+      // Store the raw value — renderMarkdown handles encoding for the
+      // HTML attribute, matching what the browser gives us on initial parse.
+      updateAttributes({ tag: newValue, config })
       autoResize()
     },
     [updateAttributes, autoResize]
@@ -94,6 +82,7 @@ export function RawTextBlock({ node, updateAttributes }: NodeViewProps) {
         <textarea
           ref={textareaRef}
           className="raw-text-code"
+          rows={1}
           value={decoded}
           onChange={handleChange}
           onMouseDown={(e) => e.stopPropagation()}

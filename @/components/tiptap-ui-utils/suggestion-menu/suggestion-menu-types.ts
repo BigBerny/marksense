@@ -34,6 +34,10 @@ export interface SuggestionItem<T = DefaultContext> {
    */
   keywords?: string[]
   /**
+   * Markdown shortcut hint displayed on the right side of the item.
+   */
+  shortcut?: string
+  /**
    * Custom data to pass to the onSelect handler.
    */
   context?: T
@@ -56,6 +60,14 @@ export type SuggestionMenuRenderProps<T = DefaultContext> = {
    * Callback to select an item.
    */
   onSelect: (item: SuggestionItem<T>) => void
+  /**
+   * Current search query text (after trigger character).
+   */
+  query?: string
+  /**
+   * Callback to close/dismiss the menu.
+   */
+  onClose?: () => void
 }
 
 export interface SuggestionMenuProps<T = DefaultContext>

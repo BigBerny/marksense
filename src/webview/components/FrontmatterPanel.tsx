@@ -159,6 +159,8 @@ function FrontmatterRow({
 
   useEffect(() => {
     autoResize()
+    const id = requestAnimationFrame(() => autoResize())
+    return () => cancelAnimationFrame(id)
   }, [value, autoResize])
 
   return (

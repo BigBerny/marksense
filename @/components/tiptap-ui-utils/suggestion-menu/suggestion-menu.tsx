@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { flip, offset, shift, size } from "@floating-ui/react"
-import { PluginKey } from "@tiptap/pm/state"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Decoration, DecorationSet } from "@tiptap/pm/view"
 
 // --- Hooks ---
 import { useFloatingElement } from "@/hooks/use-floating-element"
@@ -16,6 +17,7 @@ import { Suggestion } from "@tiptap/suggestion"
 // --- UI Primitives ---
 import {
   SuggestionPluginKey,
+  exitSuggestion,
   type SuggestionKeyDownProps,
   type SuggestionProps,
 } from "@tiptap/suggestion"
@@ -58,8 +60,9 @@ export const SuggestionMenu = ({
   const [, setInternalRange] = useState<Range | null>(null)
 
   const dismissedRef = useRef(false)
+  const dismissedRangeRef = useRef<{ from: number; to: number } | null>(null)
   const isActiveRef = useRef(false)
-  const prevDocRef = useRef<any>(null)
+  const resolvedPluginKeyRef = useRef<PluginKey | null>(null)
 
   const { ref, style, getFloatingProps, isMounted } = useFloatingElement(
     show,
@@ -92,6 +95,17 @@ export const SuggestionMenu = ({
       onOpenChange(open) {
         if (!open) {
           dismissedRef.current = true
+          // Store the current suggestion range so the same "/" stays blocked
+          if (editor && !editor.isDestroyed && resolvedPluginKeyRef.current) {
+            const pluginState =
+              resolvedPluginKeyRef.current.getState(editor.state)
+            if (pluginState?.range) {
+              dismissedRangeRef.current = {
+                from: pluginState.range.from,
+                to: pluginState.range.to,
+              }
+            }
+          }
           setShow(false)
           if (editor && !editor.isDestroyed) {
             editor.view.dispatch(editor.view.state.tr)
@@ -117,7 +131,9 @@ export const SuggestionMenu = ({
       return
     }
 
-    prevDocRef.current = editor.state.doc
+    const resolvedPluginKey =
+      pluginKey instanceof PluginKey ? pluginKey : new PluginKey(pluginKey)
+    resolvedPluginKeyRef.current = resolvedPluginKey
 
     const existingPlugin = editor.state.plugins.find(
       (plugin) => plugin.spec.key === pluginKey
@@ -127,25 +143,21 @@ export const SuggestionMenu = ({
     }
 
     const suggestion = Suggestion({
-      pluginKey:
-        pluginKey instanceof PluginKey ? pluginKey : new PluginKey(pluginKey),
+      pluginKey: resolvedPluginKey,
       editor,
 
       allow(props) {
-        // Detect doc changes synchronously by comparing with the
-        // previous doc reference. The `state` param is the new state
-        // passed from ProseMirror's plugin `apply`, so it's available
-        // before TipTap's `transaction` event fires.
-        const currentDoc = props.state?.doc ?? editor.state.doc
-        const docChanged = currentDoc !== prevDocRef.current
-        prevDocRef.current = currentDoc
-
-        if (docChanged) {
-          dismissedRef.current = false
-        }
-
         if (dismissedRef.current) {
-          return false
+          const dismissed = dismissedRangeRef.current
+          if (
+            dismissed &&
+            props.range.from === dismissed.from
+          ) {
+            return false
+          }
+          // New "/" at a different position — allow it
+          dismissedRef.current = false
+          dismissedRangeRef.current = null
         }
 
         const $from = (props.state ?? editor.state).doc.resolve(props.range.from)
@@ -213,6 +225,8 @@ export const SuggestionMenu = ({
         return {
           onStart: (props: SuggestionProps<SuggestionItem>) => {
             isActiveRef.current = true
+            dismissedRef.current = false
+            dismissedRangeRef.current = null
             setInternalDecorationNode(
               (props.decorationNode as HTMLElement) ?? null
             )
@@ -220,7 +234,6 @@ export const SuggestionMenu = ({
             setInternalItems(props.items)
             setInternalQuery(props.query)
             setInternalRange(props.range)
-            // setInternalClientRect(props.clientRect?.() ?? null)
             setShow(true)
           },
 
@@ -232,14 +245,32 @@ export const SuggestionMenu = ({
             setInternalItems(props.items)
             setInternalQuery(props.query)
             setInternalRange(props.range)
-            // setInternalClientRect(props.clientRect?.() ?? null)
           },
 
           onKeyDown: (props: SuggestionKeyDownProps) => {
             if (props.event.key === "Escape") {
               dismissedRef.current = true
+              // Remember which "/" was dismissed so a new "/" elsewhere works
+              const { view } = props
+              const { state } = view
+              const { selection } = state
+              const cursorPosition = selection.$from.pos
+              const previousNode = selection.$head?.nodeBefore
+              if (previousNode?.text) {
+                const startPosition = calculateStartPosition(
+                  cursorPosition,
+                  previousNode,
+                  internalSuggestionPropsRef.current.char
+                )
+                dismissedRangeRef.current = {
+                  from: startPosition,
+                  to: cursorPosition,
+                }
+              }
               closePopup()
-              props.view.dispatch(props.view.state.tr)
+              // Exit the suggestion plugin to remove the decoration
+              // (makes "/" go back to normal text color)
+              exitSuggestion(view, resolvedPluginKey)
               return true
             }
             return false
@@ -247,6 +278,10 @@ export const SuggestionMenu = ({
 
           onExit: () => {
             isActiveRef.current = false
+            // Preserve dismissed state so the same "/" doesn't reopen
+            if (!dismissedRef.current) {
+              dismissedRangeRef.current = null
+            }
             setInternalDecorationNode(null)
             setInternalCommand(null)
             setInternalItems([])
@@ -262,8 +297,76 @@ export const SuggestionMenu = ({
 
     editor.registerPlugin(suggestion)
 
+    // Add a widget decoration right after the trigger character (e.g. "/")
+    // to create a visual gap before the query text, placeholder, and cursor.
+    // Using side: -1 so the widget appears before the cursor at that position.
+    const spacerPluginKey = new PluginKey(
+      `${resolvedPluginKey.key}__spacer`
+    )
+
+    const triggerChar = internalSuggestionPropsRef.current.char ?? "/"
+
+    const spacerPlugin = new Plugin({
+      key: spacerPluginKey,
+      state: {
+        init() {
+          return null
+        },
+        apply(tr, _value, _oldState, newState) {
+          // When the "/" at the dismissed position is deleted, clear
+          // the dismissed state so a fresh "/" can reopen the menu.
+          if (
+            dismissedRef.current &&
+            dismissedRangeRef.current &&
+            tr.docChanged
+          ) {
+            const { from } = dismissedRangeRef.current
+            const docSize = newState.doc.content.size
+            if (from >= docSize) {
+              dismissedRef.current = false
+              dismissedRangeRef.current = null
+            } else {
+              const char = newState.doc.textBetween(
+                from,
+                Math.min(from + 1, docSize)
+              )
+              if (char !== triggerChar) {
+                dismissedRef.current = false
+                dismissedRangeRef.current = null
+              }
+            }
+          }
+          return null
+        },
+      },
+      props: {
+        decorations(state) {
+          const suggestionState = resolvedPluginKey.getState(state)
+          if (
+            !suggestionState?.active ||
+            !suggestionState.range ||
+            !suggestionState.query
+          ) {
+            return DecorationSet.empty
+          }
+          const spacerEl = document.createElement("span")
+          spacerEl.className = "tiptap-suggestion-spacer"
+          return DecorationSet.create(state.doc, [
+            Decoration.widget(
+              suggestionState.range.from + 1,
+              spacerEl,
+              { side: -1 }
+            ),
+          ])
+        },
+      },
+    })
+
+    editor.registerPlugin(spacerPlugin)
+
     return () => {
       if (!editor.isDestroyed) {
+        editor.unregisterPlugin(spacerPluginKey)
         editor.unregisterPlugin(pluginKey)
       }
     }
@@ -306,6 +409,8 @@ export const SuggestionMenu = ({
         items: internalItems,
         selectedIndex,
         onSelect,
+        query: internalQuery,
+        onClose: closePopup,
       })}
     </div>
   )

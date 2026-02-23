@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 
 // --- Lib ---
 import { getElementOverflowPosition } from "@/lib/tiptap-collab-utils"
@@ -15,6 +15,7 @@ import { SuggestionMenu } from "@/components/tiptap-ui-utils/suggestion-menu"
 // --- Hooks ---
 import type { SlashMenuConfig } from "@/components/tiptap-ui/slash-dropdown-menu/use-slash-dropdown-menu"
 import { useSlashDropdownMenu } from "@/components/tiptap-ui/slash-dropdown-menu/use-slash-dropdown-menu"
+import { useSlashMenuUsage } from "@/components/tiptap-ui/slash-dropdown-menu/use-slash-menu-usage"
 
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
@@ -38,20 +39,28 @@ type SlashDropdownMenuProps = Omit<
 export const SlashDropdownMenu = (props: SlashDropdownMenuProps) => {
   const { config, ...restProps } = props
   const { getSlashMenuItems } = useSlashDropdownMenu(config)
+  const { trackUsage, getTopItems } = useSlashMenuUsage()
 
   return (
     <SuggestionMenu
       char="/"
       pluginKey="slashDropdownMenu"
       decorationClass="tiptap-slash-decoration"
-      decorationContent="Filter..."
+      decorationContent="Type to search"
       selector="tiptap-slash-dropdown-menu"
       items={({ query, editor }) =>
         filterSuggestionItems(getSlashMenuItems(editor), query)
       }
       {...restProps}
     >
-      {(props) => <List {...props} config={config} />}
+      {(props) => (
+        <List
+          {...props}
+          config={config}
+          trackUsage={trackUsage}
+          getTopItems={getTopItems}
+        />
+      )}
     </SuggestionMenu>
   )
 }
@@ -90,6 +99,9 @@ const Item = (props: {
     >
       {BadgeIcon && <BadgeIcon className="tiptap-button-icon" />}
       <div className="tiptap-button-text">{item.title}</div>
+      {item.shortcut && (
+        <span className="tiptap-slash-item-shortcut">{item.shortcut}</span>
+      )}
     </Button>
   )
 }
@@ -98,26 +110,83 @@ const List = ({
   items,
   selectedIndex,
   onSelect,
+  query,
   config,
-}: SuggestionMenuRenderProps & { config?: SlashMenuConfig }) => {
+  trackUsage,
+  getTopItems,
+}: SuggestionMenuRenderProps & {
+  config?: SlashMenuConfig
+  trackUsage: (title: string) => void
+  getTopItems: (items: SuggestionItem[], count: number) => SuggestionItem[]
+}) => {
+  const isFiltering = !!query?.trim()
+
+  const handleSelect = useCallback(
+    (item: SuggestionItem) => {
+      trackUsage(item.title)
+      onSelect(item)
+    },
+    [onSelect, trackUsage]
+  )
+
+  const recentlyUsed = useMemo(
+    () => (isFiltering ? [] : getTopItems(items, 5)),
+    [isFiltering, getTopItems, items]
+  )
+
   const renderedItems = useMemo(() => {
     const rendered: React.ReactElement[] = []
     const showGroups = config?.showGroups !== false
 
-    if (!showGroups) {
-      items.forEach((item, index) => {
+    if (!showGroups || isFiltering) {
+      const groupLabel = isFiltering ? "Filtered results" : ""
+
+      const groupItems = items.map((item, index) => (
+        <Item
+          key={`item-${index}-${item.title}`}
+          item={item}
+          isSelected={index === selectedIndex}
+          onSelect={() => handleSelect(item)}
+        />
+      ))
+
+      if (groupLabel && groupItems.length > 0) {
         rendered.push(
-          <Item
-            key={`item-${index}-${item.title}`}
-            item={item}
-            isSelected={index === selectedIndex}
-            onSelect={() => onSelect(item)}
-          />
+          <CardItemGroup key="filtered-group">
+            <CardGroupLabel>{groupLabel}</CardGroupLabel>
+            <ButtonGroup>{groupItems}</ButtonGroup>
+          </CardItemGroup>
         )
-      })
+      } else {
+        rendered.push(...groupItems)
+      }
+
       return rendered
     }
 
+    // "Recently used" section at the top (items still appear in their groups below)
+    if (recentlyUsed.length > 0) {
+      const recentItems = recentlyUsed.map((item) => {
+        const originalIndex = items.indexOf(item)
+        return (
+          <Item
+            key={`recent-${item.title}`}
+            item={item}
+            isSelected={originalIndex === selectedIndex}
+            onSelect={() => handleSelect(item)}
+          />
+        )
+      })
+
+      rendered.push(
+        <CardItemGroup key="group-recently-used">
+          <CardGroupLabel>Recently used</CardGroupLabel>
+          <ButtonGroup>{recentItems}</ButtonGroup>
+        </CardItemGroup>
+      )
+    }
+
+    // Regular groups
     const groups: {
       [groupLabel: string]: { items: SuggestionItem[]; indices: number[] }
     } = {}
@@ -132,9 +201,12 @@ const List = ({
     })
 
     Object.entries(groups).forEach(([groupLabel, groupData], groupIndex) => {
-      if (groupIndex > 0) {
+      if (rendered.length > 0 || groupIndex > 0) {
         rendered.push(
-          <Separator key={`separator-${groupIndex}`} orientation="horizontal" />
+          <Separator
+            key={`separator-${groupIndex}`}
+            orientation="horizontal"
+          />
         )
       }
 
@@ -145,7 +217,7 @@ const List = ({
             key={`item-${originalIndex}-${item.title}`}
             item={item}
             isSelected={originalIndex === selectedIndex}
-            onSelect={() => onSelect(item)}
+            onSelect={() => handleSelect(item)}
           />
         )
       })
@@ -163,11 +235,14 @@ const List = ({
     })
 
     return rendered
-  }, [items, selectedIndex, onSelect, config?.showGroups])
-
-  if (!renderedItems.length) {
-    return null
-  }
+  }, [
+    items,
+    selectedIndex,
+    handleSelect,
+    config?.showGroups,
+    isFiltering,
+    recentlyUsed,
+  ])
 
   return (
     <Card
@@ -176,7 +251,13 @@ const List = ({
         maxHeight: "var(--suggestion-menu-max-height)",
       }}
     >
-      <CardBody className="tiptap-slash-card-body">{renderedItems}</CardBody>
+      <CardBody className="tiptap-slash-card-body">
+        {renderedItems.length > 0 ? (
+          renderedItems
+        ) : (
+          <div className="tiptap-slash-no-results">No results</div>
+        )}
+      </CardBody>
     </Card>
   )
 }

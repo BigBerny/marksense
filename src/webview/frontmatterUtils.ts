@@ -286,21 +286,166 @@ function htmlDecode(str: string): string {
  * All markers use the same `raw-text` data-type.
  *
  * Content between tags is left as-is (normal markdown).
+ *
+ * Consecutive raw-text markers are merged into a single marker so the editor
+ * displays them as one block instead of many.
  */
 export function wrapJsxComponents(markdown: string): string {
   // Handle <TableConfig /> tags first (may span multiple lines)
   let result = markdown.replace(TABLE_CONFIG_RE, (match) => {
-    const trimmed = match.trim()
-    const encoded = htmlEncode(trimmed)
+    const encoded = htmlEncode(match.trimEnd())
     return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
   // Then handle all remaining JSX tags
   result = result.replace(JSX_TAG_LINE_RE, (match) => {
-    const trimmed = match.trim()
-    const encoded = htmlEncode(trimmed)
+    const encoded = htmlEncode(match.trimEnd())
     return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
-  return result
+  // Merge consecutive raw-text divs into a single block
+  result = mergeAdjacentRawTextDivs(result)
+  // Strip JSX-context indentation from content between raw-text divs so
+  // the markdown parser doesn't misinterpret indented lines as code blocks.
+  result = stripJsxContextIndentation(result)
+  // Ensure blank lines between div markers and content so the markdown
+  // parser (marked) treats them as separate blocks.  Without this, marked
+  // merges adjacent HTML blocks and text into a single token, causing
+  // TipTap to add a leading space to the content.
+  return ensureDivContentSeparation(result)
+}
+
+/**
+ * Matches a single `<div data-type="raw-text" ...></div>` marker on a line.
+ */
+const SINGLE_RAW_DIV_RE =
+  /^<div data-type="raw-text" data-tag="([^"]*)">\s*<\/div>$/
+
+/**
+ * Merge directly consecutive `<div data-type="raw-text">` markers into a
+ * single marker whose `data-tag` contains all the encoded tags joined by
+ * `&#10;` (encoded newline).  Blank lines between divs stop the merge so
+ * they are preserved in the document.
+ */
+function mergeAdjacentRawTextDivs(text: string): string {
+  const lines = text.split("\n")
+  const result: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const match = lines[i].trim().match(SINGLE_RAW_DIV_RE)
+    if (!match) {
+      result.push(lines[i])
+      i++
+      continue
+    }
+
+    // Start collecting directly consecutive raw-text divs (no blank lines)
+    const tags: string[] = [match[1]]
+    i++
+
+    while (i < lines.length) {
+      const nextMatch = lines[i].trim().match(SINGLE_RAW_DIV_RE)
+      if (nextMatch) {
+        tags.push(nextMatch[1])
+        i++
+      } else {
+        break
+      }
+    }
+
+    // Emit a single merged marker
+    const mergedTag = tags.join("&#10;")
+    result.push(`<div data-type="raw-text" data-tag="${mergedTag}"></div>`)
+  }
+
+  return result.join("\n")
+}
+
+/**
+ * Strip the common leading whitespace from content lines that sit between
+ * raw-text divs (i.e. inside JSX blocks).  This prevents the markdown parser
+ * from treating indented prose as a fenced code block (4-space rule).
+ */
+function stripJsxContextIndentation(text: string): string {
+  const lines = text.split("\n")
+  const isDiv = (idx: number) =>
+    idx >= 0 && idx < lines.length && SINGLE_RAW_DIV_RE.test(lines[idx].trim())
+
+  const result: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    if (isDiv(i)) {
+      result.push(lines[i])
+      i++
+      continue
+    }
+
+    // Collect a content section (consecutive non-div lines)
+    const start = i
+    while (i < lines.length && !isDiv(i)) i++
+
+    const section = lines.slice(start, i)
+    const precededByDiv = start > 0 && isDiv(start - 1)
+    const followedByDiv = i < lines.length && isDiv(i)
+
+    if (precededByDiv || followedByDiv) {
+      // Find minimum indentation of non-blank lines
+      let minIndent = Infinity
+      for (const line of section) {
+        if (line.trim() === "") continue
+        const ws = line.match(/^(\s*)/)?.[1].length ?? 0
+        minIndent = Math.min(minIndent, ws)
+      }
+      if (minIndent > 0 && minIndent < Infinity) {
+        for (const line of section) {
+          result.push(line.trim() === "" ? "" : line.slice(minIndent))
+        }
+        continue
+      }
+    }
+    result.push(...section)
+  }
+
+  return result.join("\n")
+}
+
+/**
+ * Insert blank lines between raw-text div markers and adjacent content
+ * lines.  Without this separation, the markdown parser (marked) treats
+ * the div and the following text as a single HTML block, causing TipTap
+ * to collapse the newline into a leading space on the content.
+ */
+function ensureDivContentSeparation(text: string): string {
+  const lines = text.split("\n")
+  const result: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    result.push(lines[i])
+
+    // If this line is a div and the next line is non-blank content
+    // (not another div, not blank), insert a blank line.
+    if (
+      i + 1 < lines.length &&
+      SINGLE_RAW_DIV_RE.test(lines[i].trim()) &&
+      lines[i + 1].trim() !== "" &&
+      !SINGLE_RAW_DIV_RE.test(lines[i + 1].trim())
+    ) {
+      result.push("")
+    }
+
+    // If the next line is a div and this line is non-blank content
+    // (not a div, not blank), insert a blank line.
+    if (
+      i + 1 < lines.length &&
+      !SINGLE_RAW_DIV_RE.test(lines[i].trim()) &&
+      lines[i].trim() !== "" &&
+      SINGLE_RAW_DIV_RE.test(lines[i + 1].trim())
+    ) {
+      result.push("")
+    }
+  }
+
+  return result.join("\n")
 }
 
 /**
@@ -326,14 +471,33 @@ export function unwrapJsxComponents(markdown: string): string {
 }
 
 /**
- * Remove blank lines that are directly adjacent to a JSX tag line
- * (opening, closing, or self-closing with an uppercase component name).
+ * Remove TipTap's artifact blank lines between JSX tags and content.
  *
- * Blank lines between non-JSX content lines are preserved.
+ * TipTap inserts `\n\n` between every block, creating blank lines that
+ * weren't in the original file.  This function removes blank lines that
+ * sit between a JSX tag and non-JSX content (always artifacts), but
+ * preserves blank lines between two JSX blocks (e.g. `</Steps>` and
+ * `<Note>`) and between content paragraphs.  Multiple consecutive blank
+ * lines are also collapsed to at most 1.
  */
 function normalizeJsxBlankLines(text: string): string {
   const lines = text.split("\n")
   const isJsxTag = (line: string) => /^\s*<\/?[A-Z]/.test(line)
+  const isOpeningJsx = (line: string) =>
+    /^\s*<[A-Z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
+  const isClosingJsx = (line: string) => /^\s*<\/[A-Z]/.test(line)
+
+  // Pre-compute JSX nesting depth at each line position so we can
+  // distinguish artifact blank lines (inside JSX) from structural ones.
+  const depths: number[] = []
+  let depth = 0
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (isClosingJsx(trimmed)) depth = Math.max(0, depth - 1)
+    depths[i] = depth
+    if (isOpeningJsx(trimmed)) depth++
+  }
+
   const result: string[] = []
 
   for (let i = 0; i < lines.length; i++) {
@@ -341,15 +505,242 @@ function normalizeJsxBlankLines(text: string): string {
       result.push(lines[i])
       continue
     }
-    // Blank line — skip if adjacent to a JSX tag line
-    const prevIsJsx = i > 0 && isJsxTag(lines[i - 1])
-    if (prevIsJsx) continue
-    // Look ahead past consecutive blanks to the next non-blank line
+
+    // Blank line — find the nearest non-blank lines on each side
+    let prevIdx = result.length - 1
+    while (prevIdx >= 0 && result[prevIdx].trim() === "") prevIdx--
+    const prevLine = prevIdx >= 0 ? result[prevIdx] : ""
+
     let nextIdx = i + 1
     while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++
-    const nextIsJsx = nextIdx < lines.length && isJsxTag(lines[nextIdx])
-    if (nextIsJsx) continue
+    const nextLine = nextIdx < lines.length ? lines[nextIdx] : ""
+
+    const prevIsJsx = prevLine !== "" && isJsxTag(prevLine)
+    const nextIsJsx = nextLine !== "" && isJsxTag(nextLine)
+
+    // Remove blank lines between JSX tag and non-JSX content only when
+    // inside a JSX element (depth > 0).  These are TipTap serialisation
+    // artifacts.  Blank lines at depth 0 (outside JSX blocks) are
+    // structural and must be preserved.
+    if (prevIsJsx !== nextIsJsx && depths[i] > 0) continue
+
+    // Collapse multiple consecutive blank lines to at most 1
+    if (result.length > 0 && result[result.length - 1].trim() === "") continue
+
     result.push(lines[i])
+  }
+
+  return result.join("\n")
+}
+
+// ─── JSX content preservation ────────────────────────────────────────────────
+//
+// Similar to table format preservation: we extract the original content sections
+// between JSX tags on load and restore them on save when the content hasn't
+// changed.  This prevents indentation drift when TipTap re-serialises content
+// that was stripped of its leading whitespace (to avoid CommonMark's 4-space
+// code block rule).
+
+export interface JsxContentBlock {
+  /** Original text with indentation */
+  raw: string
+  /** Content with common indent stripped and blank lines trimmed */
+  normalized: string
+  /** JSX nesting depth when this content was captured */
+  depth: number
+  /** Number of leading spaces that were common to all non-blank lines */
+  indent: number
+}
+
+/** Test whether a line is a single JSX tag (opening, closing, or self-closing). */
+function isJsxTagLine(line: string): boolean {
+  return (
+    /^[ \t]*<\/?[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?>[ \t]*$/.test(line) ||
+    /^[ \t]*<[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?\/\s*>[ \t]*$/.test(line)
+  )
+}
+
+/** Opening JSX tag (not closing, not self-closing). */
+function isJsxOpeningTag(line: string): boolean {
+  const trimmed = line.trim()
+  return (
+    /^<[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?>$/.test(trimmed) &&
+    !/\/\s*>$/.test(trimmed)
+  )
+}
+
+/** Closing JSX tag. */
+function isJsxClosingTag(line: string): boolean {
+  return /^<\/[A-Z]/.test(line.trim())
+}
+
+/**
+ * Lenient JSX tag detection for serialized output where tags may have been
+ * edited by the user (e.g. extra characters after `>`).  These patterns match
+ * any line that STARTS with a JSX-like tag, sufficient for content section
+ * boundary detection in preserveJsxFormatting.
+ */
+function isJsxLikeLine(line: string): boolean {
+  return /^\s*<\/?[A-Z]/.test(line)
+}
+
+function isJsxLikeOpening(line: string): boolean {
+  return /^\s*<[A-Z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
+}
+
+function isJsxLikeClosing(line: string): boolean {
+  return /^\s*<\/[A-Z]/.test(line)
+}
+
+/** Normalize a content section for comparison: strip common indent and trim blank lines. */
+function normalizeJsxContent(text: string): string {
+  const lines = text.split("\n")
+  while (lines.length > 0 && lines[0].trim() === "") lines.shift()
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop()
+  if (lines.length === 0) return ""
+  let minIndent = Infinity
+  for (const line of lines) {
+    if (line.trim() === "") continue
+    const ws = line.match(/^(\s*)/)?.[1].length ?? 0
+    minIndent = Math.min(minIndent, ws)
+  }
+  if (minIndent > 0 && minIndent < Infinity) {
+    return lines.map((l) => (l.trim() === "" ? "" : l.slice(minIndent))).join("\n")
+  }
+  return lines.join("\n")
+}
+
+/**
+ * Extract content sections between JSX tags from the original markdown,
+ * storing both the raw text (with indentation) and a normalized version
+ * (indent-stripped) for matching.  Only captures sections that are inside
+ * a JSX block (nesting depth > 0).
+ */
+export function extractJsxContentBlocks(markdown: string): JsxContentBlock[] {
+  const lines = markdown.split("\n")
+  const blocks: JsxContentBlock[] = []
+  let depth = 0
+  let i = 0
+
+  while (i < lines.length) {
+    if (isJsxTagLine(lines[i])) {
+      if (isJsxClosingTag(lines[i])) {
+        depth = Math.max(0, depth - 1)
+      } else if (isJsxOpeningTag(lines[i])) {
+        depth++
+      }
+      i++
+      continue
+    }
+
+    // Collect content section (consecutive non-JSX-tag lines)
+    const start = i
+    while (i < lines.length && !isJsxTagLine(lines[i])) i++
+
+    // Only capture if inside a JSX block (depth > 0)
+    if (depth > 0) {
+      const raw = lines.slice(start, i).join("\n")
+      const normalized = normalizeJsxContent(raw)
+      if (normalized !== "") {
+        let minIndent = Infinity
+        for (const line of lines.slice(start, i)) {
+          if (line.trim() === "") continue
+          const ws = line.match(/^(\s*)/)?.[1].length ?? 0
+          minIndent = Math.min(minIndent, ws)
+        }
+        blocks.push({
+          raw,
+          normalized,
+          depth,
+          indent: minIndent === Infinity ? 0 : minIndent,
+        })
+      }
+    }
+  }
+
+  return blocks
+}
+
+/**
+ * Replace content sections between JSX tags with their originals when the
+ * normalised content matches.  This restores the original indentation for
+ * sections the user didn't edit.
+ *
+ * Uses lenient tag detection so that user-edited tags (e.g. extra characters
+ * after `>`) are still recognised as tag boundaries.  When content matching
+ * fails (user edited the content), falls back to depth-based re-indentation
+ * using the indent amounts from the original file.
+ */
+export function preserveJsxFormatting(
+  serialized: string,
+  originals: JsxContentBlock[]
+): string {
+  if (originals.length === 0) return serialized
+
+  // Build a queue per normalised key so duplicate sections are handled in order
+  const queues = new Map<string, string[]>()
+  for (const orig of originals) {
+    if (orig.normalized === "") continue
+    const queue = queues.get(orig.normalized) || []
+    queue.push(orig.raw)
+    queues.set(orig.normalized, queue)
+  }
+
+  // Build depth → indent map from originals for fallback re-indentation
+  const depthIndent = new Map<number, number>()
+  for (const orig of originals) {
+    if (orig.indent > 0 && !depthIndent.has(orig.depth)) {
+      depthIndent.set(orig.depth, orig.indent)
+    }
+  }
+
+  const lines = serialized.split("\n")
+  const result: string[] = []
+  let depth = 0
+  let i = 0
+
+  while (i < lines.length) {
+    if (isJsxLikeLine(lines[i])) {
+      if (isJsxLikeClosing(lines[i])) {
+        depth = Math.max(0, depth - 1)
+      } else if (isJsxLikeOpening(lines[i])) {
+        depth++
+      }
+      result.push(lines[i])
+      i++
+      continue
+    }
+
+    // Collect content section
+    const start = i
+    while (i < lines.length && !isJsxLikeLine(lines[i])) i++
+
+    if (depth > 0) {
+      const sectionLines = lines.slice(start, i)
+      const sectionText = sectionLines.join("\n")
+      const normalized = normalizeJsxContent(sectionText)
+
+      if (normalized !== "") {
+        const queue = queues.get(normalized)
+        if (queue && queue.length > 0) {
+          const original = queue.shift()!
+          result.push(...original.split("\n"))
+          continue
+        }
+      }
+      // Fallback: re-indent based on depth when content matching fails
+      const indent = depthIndent.get(depth) ?? 0
+      if (indent > 0) {
+        const prefix = " ".repeat(indent)
+        for (const line of sectionLines) {
+          result.push(line.trim() === "" ? "" : prefix + line)
+        }
+      } else {
+        result.push(...sectionLines)
+      }
+    } else {
+      result.push(...lines.slice(start, i))
+    }
   }
 
   return result.join("\n")

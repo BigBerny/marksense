@@ -57,6 +57,7 @@ const texts = {
     keywords: ["h", "heading1", "h1"],
     badge: HeadingOneIcon,
     group: "Style",
+    shortcut: "#",
   },
   heading_2: {
     title: "Heading 2",
@@ -64,6 +65,7 @@ const texts = {
     keywords: ["h2", "heading2", "subheading"],
     badge: HeadingTwoIcon,
     group: "Style",
+    shortcut: "##",
   },
   heading_3: {
     title: "Heading 3",
@@ -71,6 +73,7 @@ const texts = {
     keywords: ["h3", "heading3", "subheading"],
     badge: HeadingThreeIcon,
     group: "Style",
+    shortcut: "###",
   },
   bullet_list: {
     title: "Bullet List",
@@ -78,6 +81,7 @@ const texts = {
     keywords: ["ul", "li", "list", "bulletlist", "bullet list"],
     badge: ListIcon,
     group: "Style",
+    shortcut: "-",
   },
   ordered_list: {
     title: "Numbered List",
@@ -85,6 +89,7 @@ const texts = {
     keywords: ["ol", "li", "list", "numberedlist", "numbered list"],
     badge: ListOrderedIcon,
     group: "Style",
+    shortcut: "1.",
   },
   task_list: {
     title: "To-do list",
@@ -92,6 +97,7 @@ const texts = {
     keywords: ["tasklist", "task list", "todo", "checklist"],
     badge: ListTodoIcon,
     group: "Style",
+    shortcut: "[]",
   },
   quote: {
     title: "Blockquote",
@@ -99,6 +105,7 @@ const texts = {
     keywords: ["quote", "blockquote"],
     badge: BlockquoteIcon,
     group: "Style",
+    shortcut: ">",
   },
   code_block: {
     title: "Code Block",
@@ -106,6 +113,7 @@ const texts = {
     keywords: ["code", "pre"],
     badge: CodeBlockIcon,
     group: "Style",
+    shortcut: "```",
   },
 
   // Insert

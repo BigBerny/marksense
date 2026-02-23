@@ -75,6 +75,8 @@ const SDK_PKG = path.resolve(
 
 const TARGET_LANGUAGES = ["en", "de", "es", "fr", "it", "pt"];
 
+const EN_PREDICTION_MODEL = "l=en-c=traineddemo-st_d=2048-ep=50-lr=0.0003-fin_lr=0.0000_len_1000_at_v1.1_newline_in_vocab_single_ckpt";
+
 function copyFileSync(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);
@@ -101,6 +103,17 @@ function resolveModelsDir() {
     console.warn(`[build] TYPEWISE_MODELS_DIR=${dir} does not exist`);
   }
   const sibling = path.resolve(__dirname, "..", "superhumanmodels");
+  if (fs.existsSync(sibling)) return sibling;
+  return null;
+}
+
+function resolveModelsHubDir() {
+  if (process.env.TYPEWISE_MODELS_HUB_DIR) {
+    const dir = path.resolve(process.env.TYPEWISE_MODELS_HUB_DIR);
+    if (fs.existsSync(dir)) return dir;
+    console.warn(`[build] TYPEWISE_MODELS_HUB_DIR=${dir} does not exist`);
+  }
+  const sibling = path.resolve(__dirname, "..", "typewise-alllanguagesinternal-files/models_hub");
   if (fs.existsSync(sibling)) return sibling;
   return null;
 }
@@ -220,52 +233,48 @@ function copyTypewiseSdkAssets() {
     } catch { /* best-effort */ }
   }
 
-  // 3b. Patch language_modelling_settings.json with fields required by
-  //     the current SDK version but absent in older config files, and fix the 
-  //     English prediction model to the ONNX v4.3 version.
+  // 3b. Patch language_modelling_settings.json: set the English prediction
+  //     model to the TFLite model, remove non-English prediction entries
+  //     (they fall back to the API), and add missing SDK fields.
   const lmsPath = path.join(resourcesDest, "language_modelling_settings.json");
   if (fs.existsSync(lmsPath)) {
     try {
-      let lmsStr = fs.readFileSync(lmsPath, "utf-8");
-      
-      // Patch the english prediction model to v4.3 ONNX
-      if (lmsStr.includes("at_v3.0_newline_in_vocab_single_ckpt")) {
-        lmsStr = lmsStr.replace(
-          /l=en-c=superhuman-st_d=2048-ep=50-lr=0.0005-fin_lr=0.0000_at_v3\.0_newline_in_vocab_single_ckpt/g,
-          "l=en-c=superhuman-st_d=2048-ep=50-lr=0.0005-fin_lr=0.0000_at_v4.3_newline_in_vocab_single_ckpt"
-        );
-        fs.writeFileSync(lmsPath, lmsStr);
-        console.log("[build]   ~ patched language_modelling_settings.json (en prediction model -> v4.3 ONNX)");
-      }
-
-      // Add missing SDK fields
       const lms = JSON.parse(fs.readFileSync(lmsPath, "utf-8"));
-      let patched = false;
+
       if (lms.use_unknown_in_language_detection === undefined) {
         lms.use_unknown_in_language_detection = true;
-        patched = true;
       }
-      // Remove non-English language entries from lang_to_model_names entirely
-      // because their ONNX prediction models are not available (only old TFJS
-      // ones exist).  The SDK still autocorrects these languages via the
-      // v*_API_xx models and dictionaries.
+
+      // Set English prediction model to the TFLite model
       if (lms.lang_to_model_names) {
+        lms.lang_to_model_names.en = {
+          word_completion_model_name: EN_PREDICTION_MODEL,
+          sentence_completion_model_name: EN_PREDICTION_MODEL,
+          sentence_completion_combination_model_settings: {
+            model_name_to_inference_technique: {
+              [EN_PREDICTION_MODEL]: "beam-search-k5-ll_sum-beamscore-filtnotwordlst"
+            }
+          }
+        };
+
+        // Remove non-English prediction entries — other languages fall back
+        // to the API.  The SDK still autocorrects via v*_API_xx models and
+        // dictionaries.
         for (const lang of Object.keys(lms.lang_to_model_names)) {
           if (lang === "en") continue;
           delete lms.lang_to_model_names[lang];
-          patched = true;
         }
       }
 
-      if (patched) {
-        fs.writeFileSync(lmsPath, JSON.stringify(lms, null, 2) + "\n");
-        console.log("[build]   ~ patched language_modelling_settings.json (added missing SDK fields)");
-      }
+      fs.writeFileSync(lmsPath, JSON.stringify(lms, null, 2) + "\n");
+      console.log("[build]   ~ patched language_modelling_settings.json (en prediction -> TFLite model)");
     } catch { /* best-effort */ }
   }
 
   // 4. Copy prediction model directories referenced by
-  //    language_modelling_settings.json (only for TARGET_LANGUAGES)
+  //    language_modelling_settings.json (only for TARGET_LANGUAGES).
+  //    Models are looked up first in models_hub, then in the versioned
+  //    superhumanmodels directories.
   if (fs.existsSync(lmsPath)) {
     try {
       const lms = JSON.parse(fs.readFileSync(lmsPath, "utf-8"));
@@ -284,10 +293,23 @@ function copyTypewiseSdkAssets() {
         }
       }
 
+      const modelsHubDir = resolveModelsHubDir();
+
       for (const modelName of modelNames) {
         const modelDest = path.join(resourcesDest, modelName);
         if (fs.existsSync(modelDest)) continue;
 
+        // Check models_hub first
+        if (modelsHubDir) {
+          const hubCandidate = path.join(modelsHubDir, modelName);
+          if (fs.existsSync(hubCandidate) && fs.statSync(hubCandidate).isDirectory()) {
+            copyDirSync(hubCandidate, modelDest);
+            console.log(`[build]   + prediction model: ${modelName} (models_hub)`);
+            continue;
+          }
+        }
+
+        // Fall back to versioned superhumanmodels directories
         for (const ver of versionDirs) {
           const candidate = path.join(modelsDir, ver, "resources", modelName);
           if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
