@@ -73,7 +73,7 @@ const SDK_PKG = path.resolve(
   "node_modules/@typewise/autocorrect-predictions-sdk"
 );
 
-const TARGET_LANGUAGES = ["en", "de", "es", "fr", "it", "pt"];
+const TARGET_LANGUAGES = ["en", "de"];
 
 const EN_PREDICTION_MODEL = "l=en-c=traineddemo-st_d=2048-ep=50-lr=0.0003-fin_lr=0.0000_len_1000_at_v1.1_newline_in_vocab_single_ckpt";
 
@@ -82,17 +82,33 @@ function copyFileSync(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
-function copyDirSync(src, dest) {
+function copyDirSync(src, dest, { exclude } = {}) {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (exclude?.includes(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
+      copyDirSync(srcPath, destPath, { exclude });
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
+  }
+}
+
+function copyModelDirSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  const configSrc = path.join(src, "config.json");
+  if (fs.existsSync(configSrc)) {
+    fs.copyFileSync(configSrc, path.join(dest, "config.json"));
+  }
+  const tfliteSrc = path.join(src, "checkpoint", "model.tf_lite");
+  if (fs.existsSync(tfliteSrc)) {
+    const ckptDest = path.join(dest, "checkpoint");
+    fs.mkdirSync(ckptDest, { recursive: true });
+    fs.copyFileSync(tfliteSrc, path.join(ckptDest, "model.tf_lite"));
   }
 }
 
@@ -151,7 +167,7 @@ function copyTypewiseSdkAssets() {
   // 1. SDK bundle + WASM + Workers from node_modules
   copyFileSync(path.join(SDK_PKG, "dist/typewise.js"), path.join(dest, "typewise.js"));
   copyFileSync(path.join(SDK_PKG, "dist/sql-wasm.wasm"), path.join(dest, "sql-wasm.wasm"));
-  copyDirSync(path.join(SDK_PKG, "dist/onnx-1.18.0"), path.join(dest, "onnx-1.18.0"));
+  copyDirSync(path.join(SDK_PKG, "dist/onnx-1.18.0"), path.join(dest, "onnx-1.18.0"), { exclude: ["ort.min.js.map"] });
   copyFileSync(path.join(SDK_PKG, "tf-js-web-worker-autocorrection.js"), path.join(dest, "tf-js-web-worker-autocorrection.js"));
   copyFileSync(path.join(SDK_PKG, "tf-js-web-worker-predictions.js"), path.join(dest, "tf-js-web-worker-predictions.js"));
   console.log("[build] Typewise SDK static assets copied");
@@ -303,7 +319,7 @@ function copyTypewiseSdkAssets() {
         if (modelsHubDir) {
           const hubCandidate = path.join(modelsHubDir, modelName);
           if (fs.existsSync(hubCandidate) && fs.statSync(hubCandidate).isDirectory()) {
-            copyDirSync(hubCandidate, modelDest);
+            copyModelDirSync(hubCandidate, modelDest);
             console.log(`[build]   + prediction model: ${modelName} (models_hub)`);
             continue;
           }
@@ -313,7 +329,7 @@ function copyTypewiseSdkAssets() {
         for (const ver of versionDirs) {
           const candidate = path.join(modelsDir, ver, "resources", modelName);
           if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-            copyDirSync(candidate, modelDest);
+            copyModelDirSync(candidate, modelDest);
             console.log(`[build]   + prediction model: ${modelName} (${ver})`);
             break;
           }
