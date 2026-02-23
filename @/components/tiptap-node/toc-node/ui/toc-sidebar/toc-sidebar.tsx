@@ -81,7 +81,7 @@ export function TocSidebar({
     if (!container || headingList.length === 0) return
 
     const checkActiveHeading = () => {
-      if (Date.now() - lastNavTimeRef.current < 100) return
+      const isNavDebounce = Date.now() - lastNavTimeRef.current < 100
 
       const containerRect = container.getBoundingClientRect()
       const containerTop = containerRect.top + topOffset
@@ -96,12 +96,16 @@ export function TocSidebar({
         if (elTop <= containerTop + 60) {
           current = heading
         }
-        if (elTop >= containerRect.top && elTop <= containerRect.bottom) {
+        if (elTop >= containerTop && elTop <= containerRect.bottom) {
           onScreen.push(heading.id)
         }
       }
 
-      setScrollActiveId(current?.id ?? headingList[0]?.id ?? null)
+      // Skip active heading update during programmatic scroll (TOC click)
+      // to avoid overriding manualActiveId, but always update visible set.
+      if (!isNavDebounce) {
+        setScrollActiveId(current?.id ?? headingList[0]?.id ?? null)
+      }
 
       const key = onScreen.join(",")
       if (key !== prevVisibleKeyRef.current) {
