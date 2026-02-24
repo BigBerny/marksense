@@ -111,6 +111,7 @@ import {
   unwrapJsxComponents,
   normalizeListBlankLines,
   collapseColonListBlankLines,
+  extractCompactColonListLines,
   extractJsxContentBlocks,
   preserveJsxFormatting,
   type FrontmatterEntry,
@@ -370,6 +371,11 @@ function MarkdownEditorInner() {
   const jsxContentRef = useRef<JsxContentBlock[]>(
     extractJsxContentBlocks(initialParsed.strippedBody)
   )
+  // Track which "colon:" lines were originally compact (no blank line before list)
+  // so collapseColonListBlankLines only collapses Tiptap-introduced blank lines.
+  const compactColonLinesRef = useRef<Set<string>>(
+    extractCompactColonListLines(window.__INITIAL_CONTENT__ || "")
+  )
 
   const [sourceMode, setSourceMode] = useState(() => {
     const state = vscode.getState() as Record<string, unknown> | undefined
@@ -558,7 +564,8 @@ function MarkdownEditorInner() {
             frontmatterRef.current,
             restoredBody,
             rawFrontmatterRef.current
-          )
+          ),
+          compactColonLinesRef.current
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -785,7 +792,8 @@ function MarkdownEditorInner() {
             frontmatterRef.current,
             restoredBody,
             rawFrontmatterRef.current
-          )
+          ),
+          compactColonLinesRef.current
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -859,7 +867,8 @@ function MarkdownEditorInner() {
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
         const full = collapseColonListBlankLines(
-          serializeFrontmatter(entries, restoredBody, null)
+          serializeFrontmatter(entries, restoredBody, null),
+          compactColonLinesRef.current
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -900,7 +909,8 @@ function MarkdownEditorInner() {
             frontmatterRef.current,
             restoredBody,
             rawFrontmatterRef.current
-          )
+          ),
+          compactColonLinesRef.current
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)

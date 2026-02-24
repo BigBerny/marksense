@@ -501,14 +501,53 @@ export class MarkdownEditorProvider
       return;
     }
 
-    // Count differing lines (simple but fast)
+    // Count changed lines using LCS (longest common subsequence).
+    // The naive by-index comparison over-counts when lines are
+    // inserted or deleted, because every subsequent line shifts.
     const headLines = headContent.split("\n");
     const docLines = document.content.split("\n");
-    let count = Math.abs(headLines.length - docLines.length);
-    const minLen = Math.min(headLines.length, docLines.length);
-    for (let i = 0; i < minLen; i++) {
-      if (headLines[i] !== docLines[i]) count++;
+
+    // Trim common prefix and suffix to shrink the LCS matrix.
+    let prefix = 0;
+    while (
+      prefix < headLines.length &&
+      prefix < docLines.length &&
+      headLines[prefix] === docLines[prefix]
+    ) {
+      prefix++;
     }
+    let suffix = 0;
+    while (
+      suffix < headLines.length - prefix &&
+      suffix < docLines.length - prefix &&
+      headLines[headLines.length - 1 - suffix] ===
+        docLines[docLines.length - 1 - suffix]
+    ) {
+      suffix++;
+    }
+
+    const oldSlice = headLines.slice(prefix, headLines.length - suffix);
+    const newSlice = docLines.slice(prefix, docLines.length - suffix);
+    const n = oldSlice.length;
+    const m = newSlice.length;
+
+    // Space-efficient LCS length (two rows).
+    let prev = new Uint32Array(m + 1);
+    let curr = new Uint32Array(m + 1);
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        if (oldSlice[i - 1] === newSlice[j - 1]) {
+          curr[j] = prev[j - 1] + 1;
+        } else {
+          curr[j] = Math.max(prev[j], curr[j - 1]);
+        }
+      }
+      [prev, curr] = [curr, prev];
+      curr.fill(0);
+    }
+    const lcsLen = prev[m];
+    const count = n - lcsLen + (m - lcsLen);
+
     panel.webview.postMessage({ type: "diffCount", count: Math.max(count, 1) });
   }
 

@@ -245,7 +245,28 @@ export function normalizeListBlankLines(markdown: string): string {
  * We collapse that specific pattern back to a compact form to avoid noisy
  * formatting-only diffs in prompt/template documents.
  */
-export function collapseColonListBlankLines(markdown: string): string {
+/**
+ * Extract the set of trimmed colon-line texts that were originally in
+ * "compact" form (immediately followed by a list marker with no blank line).
+ * Used by `collapseColonListBlankLines` to decide which patterns to collapse
+ * versus preserve.
+ */
+export function extractCompactColonListLines(markdown: string): Set<string> {
+  const lines = markdown.split("\n")
+  const compact = new Set<string>()
+  for (let i = 0; i < lines.length - 1; i++) {
+    const trimmed = lines[i].trim()
+    if (trimmed.endsWith(":") && /^\s*(?:[-*+]|\d+[.)])\s+/.test(lines[i + 1])) {
+      compact.add(trimmed)
+    }
+  }
+  return compact
+}
+
+export function collapseColonListBlankLines(
+  markdown: string,
+  compactColonLines?: Set<string>
+): string {
   const lines = markdown.split("\n")
   const result: string[] = []
   let i = 0
@@ -256,9 +277,13 @@ export function collapseColonListBlankLines(markdown: string): string {
       let j = i + 1
       while (j < lines.length && lines[j].trim() === "") j++
       if (j > i + 1 && j < lines.length && /^\s*(?:[-*+]|\d+[.)])\s+/.test(lines[j])) {
-        result.push(current)
-        i = j
-        continue
+        // Only collapse if this colon-line was compact in the original,
+        // or if no original info is available (backwards-compatible).
+        if (!compactColonLines || compactColonLines.has(current.trim())) {
+          result.push(current)
+          i = j
+          continue
+        }
       }
     }
     result.push(current)
