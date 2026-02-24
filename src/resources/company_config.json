@@ -1,12 +1,12 @@
 {
-  "name": "marksense",
+  "name": "default",
   "authorizedClientUids": [
-    "marksense"
+    "default"
   ],
   "languages": {
     "en": {
       "prediction": {
-        "enabled": true
+        "enabled": false
       },
       "autocorrection": {
         "enabled": true
@@ -20,7 +20,7 @@
     },
     "de": {
       "prediction": {
-        "enabled": true
+        "enabled": false
       },
       "autocorrection": {
         "enabled": true

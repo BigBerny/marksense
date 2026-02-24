@@ -1,5 +1,5 @@
 {
-  "company_name": "marksense",
+  "company_name": "default",
   "cache": {
     "implementation": "in_memory_dict",
     "settings": {

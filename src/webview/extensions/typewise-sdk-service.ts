@@ -67,8 +67,13 @@ class TypewiseSdkService {
   private initPromise: Promise<void> | null = null
   private _ready = false
   private _failed = false
+  private _noPredictionLangs = new Set<string>()
 
   get ready(): boolean { return this._ready }
+  /** False for a given language after the SDK prediction call returns no result for it. */
+  hasPredictionsFor(lang: string): boolean { return !this._noPredictionLangs.has(lang) }
+  /** True if at least one language still has SDK predictions available. */
+  get hasPredictions(): boolean { return this._ready && !this._failed && this._noPredictionLangs.size === 0 }
 
   /**
    * Initialise all SDK components.  Safe to call multiple times —
@@ -186,22 +191,23 @@ class TypewiseSdkService {
     if (!this._ready || this._failed) return null
 
     const lang = language || await this.detectLanguage(before)
-
-    // Only the English prediction model is available; skip predictions
-    // for other languages to avoid showing nonsensical English completions.
-    if (lang !== "en") return null
+    if (this._noPredictionLangs.has(lang)) return null
 
     try {
       const raw = await this.predictions.findPredictions(before, capitalize, lang, after ?? null)
-      if (raw == null) return null
+      if (raw == null) { this._noPredictionLangs.add(lang); return null }
       const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
       const result: SdkPredictionResult = {
         ...parsed,
         prediction_candidates: parsed.prediction_candidates || parsed.predictions || [],
       }
-      if (!result.prediction_candidates || result.prediction_candidates.length === 0) return null
+      if (!result.prediction_candidates || result.prediction_candidates.length === 0) {
+        this._noPredictionLangs.add(lang)
+        return null
+      }
       return result
     } catch {
+      this._noPredictionLangs.add(lang)
       return null
     }
   }

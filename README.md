@@ -11,10 +11,9 @@
 <p align="center">
   <img src="screenshot.png" alt="Marksense editor screenshot" width="800" />
 </p>
-
 ## Features
 
-- **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
+- **fgfNotion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
 - **Markdown round-trip** — opens `.md` files, edits in rich text, saves back as clean Markdown.
 - **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
 - **Offline-first AI** — spellcheck and sentence completion run locally via WASM, no network or API token needed; grammar correction available with a [Typewise](https://www.typewise.app) API token
@@ -132,6 +131,7 @@ The VS Code setting takes priority over the `.env` file.
 You can define typed columns for any Markdown table by placing a `<TableConfig>` tag directly above it. Configured columns get interactive controls — dropdowns, checkboxes, or multi-select chips — instead of plain text editing.
 
 ```markdown
+
 <TableConfig
   status={["Todo", "In Progress", "Done"]}
   priority={{ options: ["High", "Medium", "Low"], nullable: true }}

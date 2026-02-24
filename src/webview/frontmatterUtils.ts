@@ -5,11 +5,12 @@
  * markdown / MDX file.  We separate it from the body so TipTap never sees it
  * and we can render a dedicated UI for it.
  *
- * JSX tags (lines starting with an uppercase component name, e.g. `<Steps>`,
- * `</Step>`) are replaced with HTML `<div>` markers that TipTap's custom
- * RawText atom node can parse and render as editable raw-text blocks.  The
- * markdown content *between* JSX tags passes through untouched so TipTap
- * renders it as normal editable content.
+ * Tag-like raw lines (e.g. `<Steps>`, `<company_name>`, `</Step>`) and
+ * standalone template placeholders (`{variable}`, `{ variable }`) are replaced
+ * with HTML `<div>` markers that TipTap's custom RawText atom node can parse
+ * and render as editable raw-text blocks. The markdown content *between* raw
+ * lines passes through untouched so TipTap renders it as normal editable
+ * content.
  */
 
 // ─── Frontmatter ────────────────────────────────────────────────────────────
@@ -195,7 +196,11 @@ export function restoreLeadingHtml(
 
 /**
  * Insert a blank line before list markers that directly follow a non-empty,
- * non-list line.  Skips content inside fenced code blocks.
+ * non-list line. Skips content inside fenced code blocks.
+ *
+ * We intentionally do NOT insert a blank line when the preceding line ends
+ * with ":" because prompt/template documents often use "lead-in:" lines
+ * immediately followed by a list, and adding a blank line creates noisy diffs.
  */
 export function normalizeListBlankLines(markdown: string): string {
   const lines = markdown.split("\n")
@@ -215,12 +220,49 @@ export function normalizeListBlankLines(markdown: string): string {
       i > 0 &&
       /^\s*([-*+]|\d+\.)\s/.test(line) &&
       lines[i - 1].trim() !== "" &&
-      !/^\s*([-*+]|\d+\.)\s/.test(lines[i - 1])
+      !/^\s*([-*+]|\d+\.)\s/.test(lines[i - 1]) &&
+      !lines[i - 1].trim().endsWith(":")
     ) {
       result.push("")
     }
 
     result.push(line)
+  }
+
+  return result.join("\n")
+}
+
+/**
+ * Remove blank lines between a lead-in line ending with ":" and an
+ * immediately following markdown list marker.
+ *
+ * Tiptap's markdown serializer can introduce these blank lines even when the
+ * original source had:
+ *
+ *   Intro:
+ *   1. item
+ *
+ * We collapse that specific pattern back to a compact form to avoid noisy
+ * formatting-only diffs in prompt/template documents.
+ */
+export function collapseColonListBlankLines(markdown: string): string {
+  const lines = markdown.split("\n")
+  const result: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const current = lines[i]
+    if (current.trim().endsWith(":")) {
+      let j = i + 1
+      while (j < lines.length && lines[j].trim() === "") j++
+      if (j > i + 1 && j < lines.length && /^\s*(?:[-*+]|\d+[.)])\s+/.test(lines[j])) {
+        result.push(current)
+        i = j
+        continue
+      }
+    }
+    result.push(current)
+    i++
   }
 
   return result.join("\n")
@@ -237,24 +279,28 @@ export function normalizeListBlankLines(markdown: string): string {
  */
 const TABLE_CONFIG_RE = /^[ \t]*<TableConfig\b[\s\S]*?\/\s*>[ \t]*$/gm
 
-// ─── MDX JSX tag splitting ──────────────────────────────────────────────────
+// ─── Raw tag / placeholder splitting ────────────────────────────────────────
 //
-// Instead of wrapping entire JSX blocks, we split them into individual tag
-// lines.  Each tag becomes a `<div data-type="raw-text">` that TipTap's
-// RawText atom node can parse.  The markdown content *between* tags passes
-// through untouched so TipTap renders it as normal editable content.
+// Instead of wrapping entire blocks, we split tag-like raw lines into
+// individual markers. Each line becomes a `<div data-type="raw-text">` that
+// TipTap's RawText atom node can parse. The markdown content *between* raw
+// lines passes through untouched so TipTap renders it as normal editable
+// content.
 
 /**
- * Matches a single JSX tag line (opening, closing, or self-closing) where the
- * component name starts with an uppercase letter.
+ * Matches a single raw line:
+ *   - Tag-like line (opening, closing, or self-closing), including lowercase
+ *     tags such as `<company_name>`
+ *   - Standalone template placeholder, e.g. `{variable}` or `{ variable }`
  *
  * Captures (on a single line, possibly with leading whitespace):
- *   - Opening:      <Component ...>
- *   - Closing:      </Component>
- *   - Self-closing: <Component ... />
+ *   - Opening:      <Tag ...>
+ *   - Closing:      </Tag>
+ *   - Self-closing: <Tag ... />
+ *   - Placeholder:  { ... }
  */
-const JSX_TAG_LINE_RE =
-  /^([ \t]*<\/?[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?>[ \t]*|[ \t]*<[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?\/\s*>[ \t]*)$/gm
+const RAW_LINE_RE =
+  /^([ \t]*<\/?[A-Za-z][A-Za-z0-9._:-]*(?:\s[^>]*)?>[ \t]*|[ \t]*<[A-Za-z][A-Za-z0-9._:-]*(?:\s[^>]*)?\/\s*>[ \t]*|[ \t]*\{[^{}\n]+\}[ \t]*)$/gm
 
 /** HTML-encode a string for safe use in an attribute value. */
 function htmlEncode(str: string): string {
@@ -296,8 +342,8 @@ export function wrapJsxComponents(markdown: string): string {
     const encoded = htmlEncode(match.trimEnd())
     return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
-  // Then handle all remaining JSX tags
-  result = result.replace(JSX_TAG_LINE_RE, (match) => {
+  // Then handle remaining tag-like lines and standalone placeholders
+  result = result.replace(RAW_LINE_RE, (match) => {
     const encoded = htmlEncode(match.trimEnd())
     return `<div data-type="raw-text" data-tag="${encoded}"></div>`
   })
@@ -482,10 +528,11 @@ export function unwrapJsxComponents(markdown: string): string {
  */
 function normalizeJsxBlankLines(text: string): string {
   const lines = text.split("\n")
-  const isJsxTag = (line: string) => /^\s*<\/?[A-Z]/.test(line)
-  const isOpeningJsx = (line: string) =>
-    /^\s*<[A-Z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
-  const isClosingJsx = (line: string) => /^\s*<\/[A-Z]/.test(line)
+  const isRawLine = (line: string) =>
+    /^\s*<\/?[A-Za-z]/.test(line) || /^\s*\{[^{}\n]+\}\s*$/.test(line)
+  const isOpeningTag = (line: string) =>
+    /^\s*<[A-Za-z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
+  const isClosingTag = (line: string) => /^\s*<\/[A-Za-z]/.test(line)
 
   // Pre-compute JSX nesting depth at each line position so we can
   // distinguish artifact blank lines (inside JSX) from structural ones.
@@ -493,9 +540,9 @@ function normalizeJsxBlankLines(text: string): string {
   let depth = 0
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim()
-    if (isClosingJsx(trimmed)) depth = Math.max(0, depth - 1)
+    if (isClosingTag(trimmed)) depth = Math.max(0, depth - 1)
     depths[i] = depth
-    if (isOpeningJsx(trimmed)) depth++
+    if (isOpeningTag(trimmed)) depth++
   }
 
   const result: string[] = []
@@ -515,14 +562,14 @@ function normalizeJsxBlankLines(text: string): string {
     while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++
     const nextLine = nextIdx < lines.length ? lines[nextIdx] : ""
 
-    const prevIsJsx = prevLine !== "" && isJsxTag(prevLine)
-    const nextIsJsx = nextLine !== "" && isJsxTag(nextLine)
+    const prevIsRawLine = prevLine !== "" && isRawLine(prevLine)
+    const nextIsRawLine = nextLine !== "" && isRawLine(nextLine)
 
     // Remove blank lines between JSX tag and non-JSX content only when
     // inside a JSX element (depth > 0).  These are TipTap serialisation
     // artifacts.  Blank lines at depth 0 (outside JSX blocks) are
     // structural and must be preserved.
-    if (prevIsJsx !== nextIsJsx && depths[i] > 0) continue
+    if (prevIsRawLine !== nextIsRawLine && depths[i] > 0) continue
 
     // Collapse multiple consecutive blank lines to at most 1
     if (result.length > 0 && result[result.length - 1].trim() === "") continue
@@ -552,44 +599,45 @@ export interface JsxContentBlock {
   indent: number
 }
 
-/** Test whether a line is a single JSX tag (opening, closing, or self-closing). */
+/** Test whether a line is a single tag-like raw line or a placeholder line. */
 function isJsxTagLine(line: string): boolean {
   return (
-    /^[ \t]*<\/?[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?>[ \t]*$/.test(line) ||
-    /^[ \t]*<[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?\/\s*>[ \t]*$/.test(line)
+    /^[ \t]*<\/?[A-Za-z][A-Za-z0-9._:-]*(?:\s[^>]*)?>[ \t]*$/.test(line) ||
+    /^[ \t]*<[A-Za-z][A-Za-z0-9._:-]*(?:\s[^>]*)?\/\s*>[ \t]*$/.test(line) ||
+    /^[ \t]*\{[^{}\n]+\}[ \t]*$/.test(line)
   )
 }
 
-/** Opening JSX tag (not closing, not self-closing). */
+/** Opening tag (not closing, not self-closing). */
 function isJsxOpeningTag(line: string): boolean {
   const trimmed = line.trim()
   return (
-    /^<[A-Z][A-Za-z0-9.]*(?:\s[^>]*)?>$/.test(trimmed) &&
+    /^<[A-Za-z][A-Za-z0-9._:-]*(?:\s[^>]*)?>$/.test(trimmed) &&
     !/\/\s*>$/.test(trimmed)
   )
 }
 
-/** Closing JSX tag. */
+/** Closing tag. */
 function isJsxClosingTag(line: string): boolean {
-  return /^<\/[A-Z]/.test(line.trim())
+  return /^<\/[A-Za-z]/.test(line.trim())
 }
 
 /**
- * Lenient JSX tag detection for serialized output where tags may have been
+ * Lenient raw-tag detection for serialized output where tags may have been
  * edited by the user (e.g. extra characters after `>`).  These patterns match
- * any line that STARTS with a JSX-like tag, sufficient for content section
+ * any line that STARTS with a tag-like token, sufficient for content section
  * boundary detection in preserveJsxFormatting.
  */
 function isJsxLikeLine(line: string): boolean {
-  return /^\s*<\/?[A-Z]/.test(line)
+  return /^\s*<\/?[A-Za-z]/.test(line) || /^\s*\{[^{}\n]+\}\s*$/.test(line)
 }
 
 function isJsxLikeOpening(line: string): boolean {
-  return /^\s*<[A-Z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
+  return /^\s*<[A-Za-z]/.test(line) && !/\/\s*>\s*$/.test(line.trim())
 }
 
 function isJsxLikeClosing(line: string): boolean {
-  return /^\s*<\/[A-Z]/.test(line)
+  return /^\s*<\/[A-Za-z]/.test(line)
 }
 
 /** Normalize a content section for comparison: strip common indent and trim blank lines. */

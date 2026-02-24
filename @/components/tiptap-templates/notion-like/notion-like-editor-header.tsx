@@ -269,18 +269,19 @@ export interface EditorActionsProps {
 }
 
 export function EditorActions({ sourceMode, onToggleSourceMode }: EditorActionsProps) {
-  const { changeCount, isGitRepo, openDiffEditor } = useDiff()
+  const { changeCount, isGitRepo, diffMode, diffLoading, openDiffEditor, closeDiffEditor } = useDiff()
 
   return (
     <>
       {isGitRepo && changeCount > 0 && (
         <button
           type="button"
-          className="changes-link"
-          onClick={openDiffEditor}
-          aria-label="Show changes"
+          className={`changes-link${diffMode ? " changes-link--active" : ""}`}
+          onClick={diffMode ? closeDiffEditor : openDiffEditor}
+          disabled={diffLoading}
+          aria-label={diffMode ? "Close diff" : "Show changes"}
         >
-          {changeCount} {changeCount === 1 ? "change" : "changes"}
+          {diffLoading ? "Loading..." : `${changeCount} ${changeCount === 1 ? "change" : "changes"}`}
         </button>
       )}
 

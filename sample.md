@@ -35,7 +35,6 @@ Marksense is a Notion-like rich-text editor for Markdown files, built with Tipta
 ### Task List
 
 Tasks support nesting — check them off as you go:
-
 - [ ] Type `/` to open the slash command menu
 - [ ] Select text to reveal the floating toolbar
 - [ ] Try drag-and-drop to reorder blocks
@@ -117,7 +116,6 @@ Type `:` followed by a name to insert emoji inline — for example `:rocket:` or
 ## Editor Features
 
 Here are a few things to try beyond basic formatting:
-
 - **Slash commands** — Type `/` at the start of a line to insert headings, lists, code blocks, tables, images, and more.
 - **Floating toolbar** — Select any text to access formatting options.
 - **Table of Contents** — Insert one via the slash menu; it updates as you edit.

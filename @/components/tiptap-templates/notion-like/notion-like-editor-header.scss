@@ -145,4 +145,14 @@
     color: var(--vscode-textLink-activeForeground, #005a9e);
     text-decoration: underline;
   }
+
+  &--active {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    text-decoration: none;
+  }
 }

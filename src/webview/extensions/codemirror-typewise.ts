@@ -192,16 +192,18 @@ export interface CMTypewiseOptions {
   autocorrect: boolean
   predictions: boolean
   predictionDebounce: number
+  debug: boolean
 }
 
 const defaultOptions: CMTypewiseOptions = {
   apiBaseUrl: "https://api.typewise.ai/v0",
   apiToken: "",
   aiProvider: "offlinePreferred",
-  languages: ["en", "de", "fr"],
+  languages: ["en", "de"],
   autocorrect: true,
   predictions: true,
   predictionDebounce: 0,
+  debug: false,
 }
 
 // ─── Markdown context detection ───────────────────────────────────────────────
@@ -504,18 +506,31 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
     async getCorrection(text: string) {
       const { aiProvider } = opts
       if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+        if (opts.debug) console.debug("[Typewise/CM] spellcheck request → SDK", { text: text.slice(-40) })
         const result = await typewiseSdk.correct(text)
+        if (opts.debug) console.debug("[Typewise/CM] spellcheck response ← SDK", { original: result?.original_word, suggestions: result?.suggestions?.length })
         if (result || aiProvider === "offlineOnly") return result
       }
       if (aiProvider === "apiPreferred" && opts.apiToken) {
+        if (opts.debug) console.debug("[Typewise/CM] spellcheck request → API", { text: text.slice(-40) })
         const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
-        if (apiResult) return normalizeApiCorrection(apiResult)
-        if (typewiseSdk.ready) return typewiseSdk.correct(text)
+        if (apiResult) {
+          if (opts.debug) console.debug("[Typewise/CM] spellcheck response ← API", { original: apiResult.original_word, suggestions: apiResult.suggestions?.length })
+          return normalizeApiCorrection(apiResult)
+        }
+        if (typewiseSdk.ready) {
+          if (opts.debug) console.debug("[Typewise/CM] spellcheck API failed, falling back → SDK")
+          return typewiseSdk.correct(text)
+        }
         return null
       }
       if (opts.apiToken) {
+        if (opts.debug) console.debug("[Typewise/CM] spellcheck request → API (fallback)", { text: text.slice(-40) })
         const apiResult = await apiCorrectWord(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
-        if (apiResult) return normalizeApiCorrection(apiResult)
+        if (apiResult) {
+          if (opts.debug) console.debug("[Typewise/CM] spellcheck response ← API", { original: apiResult.original_word, suggestions: apiResult.suggestions?.length })
+          return normalizeApiCorrection(apiResult)
+        }
       }
       return null
     }
@@ -622,6 +637,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
 
       try {
         const text = isSentenceComplete(sentenceText) ? sentenceText : sentenceText + "\n"
+        if (opts.debug) console.debug("[Typewise/CM] grammar request → API", { text: text.slice(-60) })
         const data = await typewisePost(
           opts.apiBaseUrl,
           "/grammar_correction/whole_text_grammar_correction",
@@ -629,6 +645,7 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
           opts.apiToken
         )
         if (this.grammarAbort.signal.aborted || !data) return
+        if (opts.debug) console.debug("[Typewise/CM] grammar response ← API", { matches: data.matches?.length ?? 0 })
 
         const matches = data.matches || []
         for (const match of matches) {
@@ -708,19 +725,25 @@ function createTypewisePlugin(opts: CMTypewiseOptions) {
 
     async getPrediction(text: string, capitalize: boolean) {
       const { aiProvider } = opts
-      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && typewiseSdk.ready)) {
+      const sdkPredictions = typewiseSdk.ready && typewiseSdk.hasPredictions
+      if (aiProvider === "offlineOnly" || (aiProvider === "offlinePreferred" && sdkPredictions)) {
+        if (opts.debug) console.debug("[Typewise/CM] prediction request → SDK", { text: text.slice(-40), capitalize })
         const result = await typewiseSdk.findPredictions(text, capitalize)
+        if (opts.debug) console.debug("[Typewise/CM] prediction response ← SDK", { candidates: result?.prediction_candidates?.length, top: result?.prediction_candidates?.[0]?.text })
         if (result || aiProvider === "offlineOnly") return result
       }
-      if (aiProvider === "apiPreferred" && opts.apiToken) {
-        const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
-        if (apiResult) return normalizeApiPrediction(apiResult)
-        if (typewiseSdk.ready) return typewiseSdk.findPredictions(text, capitalize)
-        return null
-      }
       if (opts.apiToken) {
+        if (opts.debug) console.debug("[Typewise/CM] prediction request → API", { text: text.slice(-40), capitalize })
         const apiResult = await apiSentenceComplete(opts.apiBaseUrl, text, opts.languages, opts.apiToken)
-        if (apiResult) return normalizeApiPrediction(apiResult)
+        if (apiResult) {
+          if (opts.debug) console.debug("[Typewise/CM] prediction response ← API", { candidates: apiResult.prediction_candidates?.length })
+          return normalizeApiPrediction(apiResult)
+        }
+      }
+      // API unavailable or failed — try SDK as last resort
+      if (sdkPredictions) {
+        if (opts.debug) console.debug("[Typewise/CM] prediction fallback → SDK")
+        return typewiseSdk.findPredictions(text, capitalize)
       }
       return null
     }

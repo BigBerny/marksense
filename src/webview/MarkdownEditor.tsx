@@ -99,6 +99,7 @@ import { vscode } from "./vscodeApi"
 
 // --- Diff ---
 import { DiffProvider, useDiff } from "./DiffContext"
+import { DiffEditor } from "./components/DiffEditor"
 
 // --- Frontmatter, MDX & HTML block preservation ---
 import {
@@ -109,6 +110,7 @@ import {
   wrapJsxComponents,
   unwrapJsxComponents,
   normalizeListBlankLines,
+  collapseColonListBlankLines,
   extractJsxContentBlocks,
   preserveJsxFormatting,
   type FrontmatterEntry,
@@ -324,7 +326,7 @@ function MarkdownEditorInner() {
   const isExternalUpdate = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
-  const { setChangeCount } = useDiff()
+  const { setChangeCount, setHeadContent, diffMode, headContent, closeDiffEditor } = useDiff()
 
   // --- Parse the initial file content into frontmatter + body (once) ---
   const [initialParsed] = useState(() => {
@@ -382,6 +384,7 @@ function MarkdownEditorInner() {
   const typewiseToken = window.__SETTINGS__?.typewiseToken || ""
   const typewiseSdkBaseUri = window.__SETTINGS__?.typewiseSdkBaseUri || ""
   const aiProvider = (window.__SETTINGS__?.aiProvider || "offlinePreferred") as import("./extensions/typewise-api").AiProvider
+  const debugTypewise = !!window.__SETTINGS__?.debugTypewise
 
   // Initialize the Typewise SDK (local WASM-based spell-check & predictions)
   useEffect(() => {
@@ -397,7 +400,7 @@ function MarkdownEditorInner() {
       predictionsWorkerPath: `${typewiseSdkBaseUri}/tf-js-web-worker-predictions.js`,
     }
 
-    typewiseSdk.initialize(["en", "de", "fr"], paths).then(() => {
+    typewiseSdk.initialize(["en", "de"], paths).then(() => {
       const words = getUserDictionaryWords()
       if (words.length > 0) typewiseSdk.setUserDictionaryWords(words)
     })
@@ -409,13 +412,14 @@ function MarkdownEditorInner() {
     ...cmTypewise({
       apiToken: typewiseToken,
       aiProvider,
-      languages: ["en", "de", "fr"],
+      languages: ["en", "de"],
       autocorrect: true,
       predictions: true,
+      debug: debugTypewise,
     }),
     markdownLinter,
     lintGutter(),
-  ], [typewiseToken, aiProvider])
+  ], [typewiseToken, aiProvider, debugTypewise])
 
   // Buffer of recently sent content so we can detect echoed updates
   // (VS Code sends the content back after writing it to disk).
@@ -519,9 +523,10 @@ function MarkdownEditorInner() {
       TypewiseIntegration.configure({
         apiToken: typewiseToken,
         aiProvider,
-        languages: ["en", "de", "fr"],
+        languages: ["en", "de"],
         autocorrect: true,
         predictions: true,
+        debug: debugTypewise,
       }),
     ],
     // --- Initial content: body only (frontmatter is handled separately) ---
@@ -548,10 +553,12 @@ function MarkdownEditorInner() {
           rawPrefixRef.current,
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
-        const full = serializeFrontmatter(
-          frontmatterRef.current,
-          restoredBody,
-          rawFrontmatterRef.current
+        const full = collapseColonListBlankLines(
+          serializeFrontmatter(
+            frontmatterRef.current,
+            restoredBody,
+            rawFrontmatterRef.current
+          )
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -725,8 +732,13 @@ function MarkdownEditorInner() {
       if (message.type === "diffCount" && typeof message.count === "number") {
         setChangeCount(message.count)
       }
+
+      // --- Diff: receive HEAD content for in-editor diff view ---
+      if (message.type === "headContent") {
+        setHeadContent(message.content ?? null)
+      }
     },
-    [editor, setChangeCount]
+    [editor, setChangeCount, setHeadContent]
   )
 
   useEffect(() => {
@@ -744,6 +756,9 @@ function MarkdownEditorInner() {
   // ── Source mode toggle ─────────────────────────────────────────────
   const handleToggleSourceMode = useCallback(() => {
     if (!editor || editor.isDestroyed) return
+
+    // Close diff view when switching modes
+    if (diffMode) closeDiffEditor()
 
     if (!sourceMode) {
       // Entering source mode: use the raw file content so that line numbers
@@ -765,10 +780,12 @@ function MarkdownEditorInner() {
           rawPrefixRef.current,
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
-        const full = serializeFrontmatter(
-          frontmatterRef.current,
-          restoredBody,
-          rawFrontmatterRef.current
+        const full = collapseColonListBlankLines(
+          serializeFrontmatter(
+            frontmatterRef.current,
+            restoredBody,
+            rawFrontmatterRef.current
+          )
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -816,7 +833,7 @@ function MarkdownEditorInner() {
       vscode.setState({ ...state, sourceMode: next })
       return next
     })
-  }, [editor, sourceMode, sourceContent])
+  }, [editor, sourceMode, sourceContent, diffMode, closeDiffEditor])
 
   // ── Frontmatter change handler ─────────────────────────────────────
   const handleFrontmatterChange = useCallback(
@@ -841,7 +858,9 @@ function MarkdownEditorInner() {
           rawPrefixRef.current,
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
-        const full = serializeFrontmatter(entries, restoredBody, null)
+        const full = collapseColonListBlankLines(
+          serializeFrontmatter(entries, restoredBody, null)
+        )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
         sentToHostBufferRef.current.add(full)
@@ -876,10 +895,12 @@ function MarkdownEditorInner() {
           newPrefix,
           preserveTableFormatting(bodyWithRelPaths, originalTablesRef.current)
         )
-        const full = serializeFrontmatter(
-          frontmatterRef.current,
-          restoredBody,
-          rawFrontmatterRef.current
+        const full = collapseColonListBlankLines(
+          serializeFrontmatter(
+            frontmatterRef.current,
+            restoredBody,
+            rawFrontmatterRef.current
+          )
         )
         currentMarkdownRef.current = full
         setCurrentMarkdown(full)
@@ -905,14 +926,20 @@ function MarkdownEditorInner() {
     return <LoadingSpinner />
   }
 
-  const showSource = sourceMode
+  const showSource = sourceMode && !diffMode
 
   return (
     <div className="notion-like-editor-wrapper">
       <EditorContext.Provider value={{ editor }}>
         <NotionEditorHeader sourceMode={sourceMode} onToggleSourceMode={handleToggleSourceMode} />
 
-        {showSource ? (
+        {diffMode && headContent != null ? (
+          <div className="notion-like-editor-layout" data-diff-mode>
+            <div className="notion-like-editor-content-column">
+              <DiffEditor currentContent={currentMarkdown} headContent={headContent} />
+            </div>
+          </div>
+        ) : showSource ? (
           <div className="notion-like-editor-layout" data-source-mode>
             <div className="notion-like-editor-content-column">
               <SourceEditor

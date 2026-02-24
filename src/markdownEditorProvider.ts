@@ -85,32 +85,6 @@ function getGitHeadContent(filePath: string): string | null {
 }
 
 /**
- * Count changed lines (added + removed) between HEAD and the working copy.
- * Returns 0 for untracked files or on any error.
- */
-function getDiffChangeCount(filePath: string): number {
-  try {
-    const dir = path.dirname(filePath);
-    const repoRoot = execSync("git rev-parse --show-toplevel", {
-      cwd: dir,
-      encoding: "utf-8",
-    }).trim();
-    const relativePath = path.relative(repoRoot, filePath);
-    const stat = execSync(`git diff --numstat HEAD -- "${relativePath}"`, {
-      cwd: repoRoot,
-      encoding: "utf-8",
-    }).trim();
-    if (!stat) return 0;
-    const parts = stat.split("\t");
-    const added = parseInt(parts[0], 10) || 0;
-    const removed = parseInt(parts[1], 10) || 0;
-    return added + removed;
-  } catch {
-    return 0;
-  }
-}
-
-/**
  * Virtual document provider for showing HEAD content in VS Code's diff editor.
  */
 class GitHeadContentProvider implements vscode.TextDocumentContentProvider {
@@ -194,11 +168,10 @@ export class MarkdownEditorProvider
     context: vscode.ExtensionContext
   ): vscode.Disposable {
     // Register virtual document provider for showing HEAD content in diff editor
-    const gitHeadProvider = new GitHeadContentProvider();
     context.subscriptions.push(
       vscode.workspace.registerTextDocumentContentProvider(
         "marksense-head",
-        gitHeadProvider
+        new GitHeadContentProvider()
       )
     );
 
@@ -231,6 +204,46 @@ export class MarkdownEditorProvider
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
+
+    // ── SCM diff redirect: detect non-file scheme (e.g. git:) ────────
+    // When VS Code opens a diff from Source Control for a custom editor,
+    // it opens two panels in a diff group. The "left" side uses a git:
+    // scheme URI. We render a minimal placeholder, then close the diff
+    // group and redirect to Marksense's built-in diff view.
+    if (document.uri.scheme !== "file") {
+      const filePath = document.uri.fsPath;
+      const fileUri = vscode.Uri.file(filePath);
+      const fileUriKey = fileUri.toString();
+
+      // Render a lightweight placeholder (no Tiptap)
+      webviewPanel.webview.html =
+        "<!DOCTYPE html><html><body></body></html>";
+
+      // When the diff group closes, redirect to the real editor with diff
+      webviewPanel.onDidDispose(() => {
+        // Brief delay so other dispose handlers (e.g. for the right panel)
+        // run first, keeping webviewPanels map accurate.
+        setTimeout(async () => {
+          // Restore the file editor in normal mode if it was closed
+          // with the diff group
+          if (!this.webviewPanels.has(fileUriKey)) {
+            await vscode.commands.executeCommand(
+              "vscode.openWith",
+              fileUri,
+              "marksense.editor"
+            );
+          }
+          // Open diff in a separate tab (becomes the active tab)
+          this.openStandaloneDiffPanel(filePath);
+        }, 50);
+      });
+
+      // Close the diff group immediately
+      webviewPanel.dispose();
+
+      return;
+    }
+
     const uriKey = document.uri.toString();
     this.webviewPanels.set(uriKey, webviewPanel);
 
@@ -264,13 +277,14 @@ export class MarkdownEditorProvider
       config.get<string>("aiProvider", "offlinePreferred") || "offlinePreferred";
     const autoSaveDelay = config.get<number>("autoSaveDelay", 300);
     const defaultFullWidth = config.get<boolean>("defaultFullWidth", false);
+    const debugTypewise = this.context.extensionMode === vscode.ExtensionMode.Development;
     const isGitRepo = isInsideGitRepo(document.uri.fsPath);
 
     // Generate the webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(
       webviewPanel.webview,
       document.content,
-      { typewiseToken, aiProvider, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo }
+      { typewiseToken, aiProvider, autoSaveDelay, defaultFullWidth, documentDirWebviewUri, isGitRepo, debugTypewise }
     );
 
     // Send initial diff count after webview initializes
@@ -279,6 +293,7 @@ export class MarkdownEditorProvider
         this.sendDiffCount(document, webviewPanel);
       }, 500);
     }
+
 
     // --- Sync: webview → document model ---
 
@@ -300,23 +315,18 @@ export class MarkdownEditorProvider
             document.content = message.content as string;
             // Tell VS Code the document is dirty
             this._onDidChangeCustomDocument.fire({ document });
+            // Update diff count from in-memory content
+            if (isGitRepo) this.sendDiffCount(document, webviewPanel);
           }, autoSaveDelay);
         }
 
-        // --- Open VS Code's built-in diff editor ---
-        if (message.type === "openBuiltinDiff") {
-          try {
-            const headUri = document.uri.with({ scheme: "marksense-head" });
-            const fileName = path.basename(document.uri.fsPath);
-            await vscode.commands.executeCommand(
-              "vscode.diff",
-              headUri,
-              document.uri,
-              `${fileName} (HEAD \u2194 Working)`
-            );
-          } catch (err) {
-            console.error("[Marksense] Error opening diff:", err);
-          }
+        // --- In-editor diff: send HEAD content to webview ---
+        if (message.type === "requestHeadContent") {
+          const headContent = getGitHeadContent(document.uri.fsPath);
+          webviewPanel.webview.postMessage({
+            type: "headContent",
+            content: headContent,
+          });
         }
 
         // --- Image upload: save file to disk and return relative path ---
@@ -406,6 +416,8 @@ export class MarkdownEditorProvider
             type: "update",
             content: diskContent,
           });
+          // External change may be a commit — refresh HEAD cache
+          this.refreshHeadCache(document);
           this.sendDiffCount(document, webviewPanel);
         }
       } catch {
@@ -444,18 +456,60 @@ export class MarkdownEditorProvider
       textDocSub.dispose();
       viewStateSub.dispose();
       this.webviewPanels.delete(uriKey);
+      this.headContentCache.delete(uriKey);
     });
   }
 
   // ── Diff count ─────────────────────────────────────────────────
 
+  /** Cached HEAD content per document URI, for in-memory diff count. */
+  private readonly headContentCache = new Map<string, string | null>();
+
+  /**
+   * Refresh the cached HEAD content for a document.
+   * Called on open, save, and external sync.
+   */
+  private refreshHeadCache(document: MarkdownDocument): void {
+    const key = document.uri.toString();
+    this.headContentCache.set(key, getGitHeadContent(document.uri.fsPath));
+  }
+
+  /**
+   * Send diff count to the webview by comparing in-memory document content
+   * with the cached HEAD content. This works even before the file is saved.
+   */
   private sendDiffCount(
     document: MarkdownDocument,
     panel: vscode.WebviewPanel
   ): void {
     if (!isInsideGitRepo(document.uri.fsPath)) return;
-    const count = getDiffChangeCount(document.uri.fsPath);
-    panel.webview.postMessage({ type: "diffCount", count });
+
+    const key = document.uri.toString();
+    if (!this.headContentCache.has(key)) {
+      this.refreshHeadCache(document);
+    }
+    const headContent = this.headContentCache.get(key);
+
+    if (headContent == null) {
+      // Untracked or no HEAD — no meaningful count
+      panel.webview.postMessage({ type: "diffCount", count: 0 });
+      return;
+    }
+
+    if (document.content === headContent) {
+      panel.webview.postMessage({ type: "diffCount", count: 0 });
+      return;
+    }
+
+    // Count differing lines (simple but fast)
+    const headLines = headContent.split("\n");
+    const docLines = document.content.split("\n");
+    let count = Math.abs(headLines.length - docLines.length);
+    const minLen = Math.min(headLines.length, docLines.length);
+    for (let i = 0; i < minLen; i++) {
+      if (headLines[i] !== docLines[i]) count++;
+    }
+    panel.webview.postMessage({ type: "diffCount", count: Math.max(count, 1) });
   }
 
   // ── Save / Revert / Backup ───────────────────────────────────────
@@ -466,6 +520,8 @@ export class MarkdownEditorProvider
   ): Promise<void> {
     await fs.promises.writeFile(document.uri.fsPath, document.content, "utf-8");
     document.markSaved();
+    // HEAD may have changed (e.g. commit just happened) — refresh cache
+    this.refreshHeadCache(document);
     const panel = this.webviewPanels.get(document.uri.toString());
     if (panel) this.sendDiffCount(document, panel);
   }
@@ -517,6 +573,78 @@ export class MarkdownEditorProvider
     };
   }
 
+  // ── Standalone diff panel ───────────────────────────────────────
+
+  /**
+   * Open a separate read-only webview tab showing the diff view.
+   * Uses the same webview bundle but is not a custom editor, so it
+   * doesn't conflict with the existing editor tab for the same file.
+   */
+  private openStandaloneDiffPanel(filePath: string): void {
+    const headContent = getGitHeadContent(filePath);
+    if (headContent === null) return;
+
+    let currentContent: string;
+    try {
+      currentContent = fs.readFileSync(filePath, "utf-8");
+    } catch {
+      return;
+    }
+
+    const fileName = path.basename(filePath);
+    const documentDir = vscode.Uri.file(path.dirname(filePath));
+    const workspaceRoots =
+      vscode.workspace.workspaceFolders?.map((f) => f.uri) ?? [];
+
+    const panel = vscode.window.createWebviewPanel(
+      "marksense.diffView",
+      `Changes: ${fileName}`,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+          documentDir,
+          ...workspaceRoots,
+        ],
+      }
+    );
+
+    const documentDirWebviewUri = panel.webview
+      .asWebviewUri(documentDir)
+      .toString();
+
+    const config = vscode.workspace.getConfiguration("marksense");
+    const env = readEnvFile(this.context.extensionUri.fsPath);
+
+    panel.webview.html = this.getHtmlForWebview(panel.webview, currentContent, {
+      typewiseToken:
+        config.get<string>("typewiseToken", "") || env["TYPEWISE_TOKEN"] || "",
+      aiProvider:
+        config.get<string>("aiProvider", "offlinePreferred") ||
+        "offlinePreferred",
+      autoSaveDelay: config.get<number>("autoSaveDelay", 300),
+      defaultFullWidth: config.get<boolean>("defaultFullWidth", false),
+      documentDirWebviewUri,
+      isGitRepo: true,
+      debugTypewise:
+        this.context.extensionMode === vscode.ExtensionMode.Development,
+    });
+
+    // Auto-enable diff mode once the webview is ready
+    setTimeout(() => {
+      panel.webview.postMessage({ type: "headContent", content: headContent });
+    }, 500);
+
+    // Handle re-requests (e.g. user closes and re-opens diff within the tab)
+    panel.webview.onDidReceiveMessage((message) => {
+      if (message.type === "requestHeadContent") {
+        const fresh = getGitHeadContent(filePath);
+        panel.webview.postMessage({ type: "headContent", content: fresh });
+      }
+    });
+  }
+
   // ── HTML generation ──────────────────────────────────────────────
 
   private getHtmlForWebview(
@@ -529,6 +657,7 @@ export class MarkdownEditorProvider
       defaultFullWidth: boolean;
       documentDirWebviewUri: string;
       isGitRepo: boolean;
+      debugTypewise: boolean;
     }
   ): string {
     const scriptUri = webview.asWebviewUri(
