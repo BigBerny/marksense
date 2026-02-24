@@ -11,6 +11,7 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/BigBerny/marksense/main/screenshot.png" alt="Marksense editor screenshot" width="800" />
 </p>
+
 ## Features
 
 - **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
