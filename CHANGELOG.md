@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.1 — 2026-02-24
+
+### Fixed
+
+- Fix image links in README to reflect new repository location
+
 ## 3.2.0 — 2026-02-24
 
 ### Added
