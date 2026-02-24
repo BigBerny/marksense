@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.2 — 2026-02-24
+
+### Improved
+
+- Improve README formatting for better readability
+
 ## 3.2.1 — 2026-02-24
 
 ### Fixed
