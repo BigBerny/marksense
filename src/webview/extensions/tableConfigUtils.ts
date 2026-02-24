@@ -10,6 +10,10 @@
  *     done="boolean"
  *   />
  *
+ * Prop names can be bare identifiers or quoted strings for names with spaces:
+ *   - `status={...}`           →  bare identifier
+ *   - `"Internal only"={...}`  →  quoted name (required when name contains spaces)
+ *
  * Prop formats:
  *   - Array  →  singleSelect  (e.g. `status={["A", "B"]}`)
  *   - Object with `multi` key  →  multiSelect shorthand  (e.g. `tags={{ multi: ["A", "B"] }}`)
@@ -91,10 +95,22 @@ function tokenizeProps(attrString: string): [string, string][] {
     while (i < attrString.length && /\s/.test(attrString[i])) i++
     if (i >= attrString.length) break
 
-    // Read prop name (word chars + hyphens)
-    const nameStart = i
-    while (i < attrString.length && /[\w-]/.test(attrString[i])) i++
-    const name = attrString.slice(nameStart, i)
+    // Read prop name — either quoted ("Name With Spaces") or bare (word chars + hyphens)
+    let name: string
+    if (attrString[i] === '"') {
+      i++ // skip opening "
+      const nameStart = i
+      while (i < attrString.length && attrString[i] !== '"') {
+        if (attrString[i] === "\\") i++ // skip escaped char
+        i++
+      }
+      name = attrString.slice(nameStart, i)
+      i++ // skip closing "
+    } else {
+      const nameStart = i
+      while (i < attrString.length && /[\w-]/.test(attrString[i])) i++
+      name = attrString.slice(nameStart, i)
+    }
     if (!name) break
 
     // Skip whitespace around =
@@ -305,25 +321,28 @@ function parseJsonArray(arrayStr: string): string[] | null {
 
 // ─── Serialization ──────────────────────────────────────────────────────────
 
-/**
- * Reconstruct a `<TableConfig ... />` tag from a parsed config.
- */
+/** Returns the prop name quoted if it contains characters outside `[\w-]`. */
+function serializePropName(name: string): string {
+  return /^[\w-]+$/.test(name) ? name : `"${name}"`
+}
+
 export function serializeTableConfig(config: ParsedTableConfig): string {
   const props = Object.entries(config)
     .map(([name, cfg]) => {
+      const key = serializePropName(name)
       switch (cfg.type) {
         case "boolean":
-          return `${name}="boolean"`
+          return `${key}="boolean"`
         case "singleSelect":
           if (cfg.nullable) {
-            return `${name}={{ options: ${JSON.stringify(cfg.options)}, nullable: true }}`
+            return `${key}={{ options: ${JSON.stringify(cfg.options)}, nullable: true }}`
           }
-          return `${name}={${JSON.stringify(cfg.options)}}`
+          return `${key}={${JSON.stringify(cfg.options)}}`
         case "multiSelect":
           if (cfg.nullable) {
-            return `${name}={{ options: ${JSON.stringify(cfg.options)}, multi: true, nullable: true }}`
+            return `${key}={{ options: ${JSON.stringify(cfg.options)}, multi: true, nullable: true }}`
           }
-          return `${name}={{ multi: ${JSON.stringify(cfg.options)} }}`
+          return `${key}={{ multi: ${JSON.stringify(cfg.options)} }}`
       }
     })
     .join(" ")
