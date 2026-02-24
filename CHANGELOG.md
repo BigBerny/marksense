@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.3 — 2026-02-24
+
+### Added
+
+- Add support for quoted property names with spaces in TableConfig (e.g. `"Internal only"={...}`)
+
 ## 3.2.2 — 2026-02-24
 
 ### Improved

@@ -2,7 +2,7 @@
   "name": "marksense",
   "displayName": "Marksense",
   "description": "A beautiful Notion-like Markdown editor for VS Code, powered by Tiptap — with AI assistance, slash commands, and rich formatting",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "publisher": "janisberneker",
   "license": "MIT",
   "repository": {
