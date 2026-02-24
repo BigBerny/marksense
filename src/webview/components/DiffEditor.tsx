@@ -12,6 +12,8 @@ import { unifiedMergeView } from "@codemirror/merge"
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { marksenseTheme, marksenseSyntaxHighlighting } from "./source-editor-theme"
 import { useDiff } from "../DiffContext"
+import { Button } from "@/components/tiptap-ui-primitive/button"
+import { XIcon } from "@/components/tiptap-icons/x-icon"
 
 const diffTheme = EditorView.theme({
   // Inserted lines (present in working copy, absent in HEAD)
@@ -33,6 +35,28 @@ const diffTheme = EditorView.theme({
     backgroundColor: "transparent",
   },
 })
+
+function GitBranchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  )
+}
 
 interface DiffEditorProps {
   currentContent: string
@@ -81,15 +105,19 @@ export function DiffEditor({ currentContent, headContent }: DiffEditorProps) {
   return (
     <div className="diff-editor-wrapper">
       <div className="diff-editor-toolbar">
-        <span className="diff-editor-title">Changes vs HEAD</span>
-        <button
+        <div className="diff-editor-title">
+          <GitBranchIcon className="diff-editor-title-icon" />
+          <span>Changes vs HEAD</span>
+        </div>
+        <Button
           type="button"
-          className="diff-editor-close"
+          data-style="ghost"
           onClick={closeDiffEditor}
           aria-label="Close diff"
+          tooltip="Close diff view"
         >
-          Close
-        </button>
+          <XIcon className="tiptap-button-icon" />
+        </Button>
       </div>
       <div ref={containerRef} className="diff-editor-container" />
     </div>

@@ -281,7 +281,7 @@ export function EditorActions({ sourceMode, onToggleSourceMode }: EditorActionsP
           disabled={diffLoading}
           aria-label={diffMode ? "Close diff" : "Show changes"}
         >
-          {diffLoading ? "Loading..." : `${changeCount} ${changeCount === 1 ? "change" : "changes"}`}
+          {`${changeCount} ${changeCount === 1 ? "change" : "changes"}`}
         </button>
       )}
 

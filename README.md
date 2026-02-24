@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" alt="Marksense" width="128" />
+  <img src="https://raw.githubusercontent.com/janisberneker/marksense/main/icon.png" alt="Marksense" width="128" />
 </p>
 
 <h1 align="center">Marksense</h1>
@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <img src="screenshot.png" alt="Marksense editor screenshot" width="800" />
+  <img src="https://raw.githubusercontent.com/janisberneker/marksense/main/screenshot.png" alt="Marksense editor screenshot" width="800" />
 </p>
 ## Features
 
-- **fgfNotion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
+- **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
 - **Markdown round-trip** — opens `.md` files, edits in rich text, saves back as clean Markdown.
 - **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
 - **Offline-first AI** — spellcheck and sentence completion run locally via WASM, no network or API token needed; grammar correction available with a [Typewise](https://www.typewise.app) API token
@@ -46,13 +46,13 @@ Then press **F5** to launch the Extension Development Host.
 
 ## Usage
 
-Open any `.md` file, then right-click the editor tab and choose **Reopen Editor With… > Marksense Editor**.
+Open any `.md` or `.mdx` file, then right-click the editor tab and choose **Reopen Editor With… > Marksense Editor**.
 
 ### Making Marksense the default editor
 
 #### For a single file type
 
-Right-click the editor tab → **Reopen Editor With…** → **Marksense Editor** → click **Configure default editor for '*.md'…** at the bottom of the picker and select **Marksense Editor**.
+Right-click the editor tab → **Reopen Editor With…** → **Marksense Editor** → click **Configure default editor for '*.md'…** at the bottom of the picker and select **Marksense Editor**. Repeat for `*.mdx` if desired.
 
 #### For a project
 
@@ -61,7 +61,8 @@ Add to `.vscode/settings.json` in your project:
 ```json
 {
   "workbench.editorAssociations": {
-    "*.md": "marksense.editor"
+    "*.md": "marksense.editor",
+    "*.mdx": "marksense.editor"
   }
 }
 ```
@@ -73,7 +74,8 @@ Open your **User** settings (`Ctrl+Shift+P` / `Cmd+Shift+P` → **Preferences: O
 ```json
 {
   "workbench.editorAssociations": {
-    "*.md": "marksense.editor"
+    "*.md": "marksense.editor",
+    "*.mdx": "marksense.editor"
   }
 }
 ```
