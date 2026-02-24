@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.0 — 2026-02-24
+
+### Added
+
+- Add in-editor diff view for comparing changes against the Git HEAD content
+
+### Improved
+
+- Improve line change detection accuracy with LCS-based diff algorithm
+- Improve blank line handling in Markdown list output
+- Update README documentation with direct image URLs and MDX file guidance
+
 ## 3.0.1 — 2026-02-23
 
 ### Improved
