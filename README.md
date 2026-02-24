@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/janisberneker/marksense/main/icon.png" alt="Marksense" width="128" />
+  <img src="https://raw.githubusercontent.com/BigBerny/marksense/main/icon.png" alt="Marksense" width="128" />
 </p>
 
 <h1 align="center">Marksense</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/janisberneker/marksense/main/screenshot.png" alt="Marksense editor screenshot" width="800" />
+  <img src="https://raw.githubusercontent.com/BigBerny/marksense/main/screenshot.png" alt="Marksense editor screenshot" width="800" />
 </p>
 ## Features
 
