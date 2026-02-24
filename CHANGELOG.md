@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.2.0 — 2026-02-24
+
+### Added
+
+- Add accept/reject buttons for managing individual diff chunks in the diff editor
+
+### Improved
+
+- Improve content synchronization when entering and exiting diff mode
+- Improve DiffEditor responsiveness to content changes and external updates
+
 ## 3.1.0 — 2026-02-24
 
 ### Added
