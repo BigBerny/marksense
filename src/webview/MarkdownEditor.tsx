@@ -328,6 +328,8 @@ function MarkdownEditorInner() {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { setTocContent } = useToc()
   const { setChangeCount, setHeadContent, diffMode, headContent, closeDiffEditor } = useDiff()
+  const [diffContent, setDiffContent] = useState("")
+  const diffContentRef = useRef("")
 
   // --- Parse the initial file content into frontmatter + body (once) ---
   const [initialParsed] = useState(() => {
@@ -760,12 +762,63 @@ function MarkdownEditorInner() {
     }
   }, [])
 
+  // ── Snapshot current content when entering diff mode ─────────────
+  useEffect(() => {
+    if (diffMode && headContent != null) {
+      const content = currentMarkdownRef.current
+      setDiffContent(content)
+      diffContentRef.current = content
+    }
+  }, [diffMode, headContent])
+
+  // ── Close diff view and re-sync to Tiptap ────────────────────────
+  const handleCloseDiffEditor = useCallback(() => {
+    if (!editor || editor.isDestroyed) {
+      closeDiffEditor()
+      return
+    }
+
+    const editedContent = diffContentRef.current
+    if (editedContent && editedContent !== currentMarkdownRef.current) {
+      // Content was modified in diff mode — re-parse into Tiptap
+      const parsed = parseFrontmatter(editedContent)
+      const { htmlPrefix: newRawPrefix, body: strippedBody } =
+        extractLeadingHtml(parsed.body)
+      rawPrefixRef.current = newRawPrefix
+      setRawPrefix(newRawPrefix)
+      originalTablesRef.current = extractTableBlocks(strippedBody)
+      jsxContentRef.current = extractJsxContentBlocks(strippedBody)
+      const processedBody = resolveImageUrls(
+        normalizeListBlankLines(wrapJsxComponents(strippedBody)),
+        documentDirWebviewUri
+      )
+      setFrontmatter(parsed.frontmatter)
+      frontmatterRef.current = parsed.frontmatter
+      rawFrontmatterRef.current = parsed.rawFrontmatter
+
+      currentMarkdownRef.current = editedContent
+      setCurrentMarkdown(editedContent)
+
+      isExternalUpdate.current = true
+      // @ts-ignore — contentType option provided by @tiptap/markdown
+      editor.commands.setContent(processedBody, {
+        contentType: "markdown",
+        emitUpdate: false,
+      })
+      requestAnimationFrame(() => {
+        isExternalUpdate.current = false
+      })
+    }
+
+    closeDiffEditor()
+  }, [editor, closeDiffEditor])
+
   // ── Source mode toggle ─────────────────────────────────────────────
   const handleToggleSourceMode = useCallback(() => {
     if (!editor || editor.isDestroyed) return
 
     // Close diff view when switching modes
-    if (diffMode) closeDiffEditor()
+    if (diffMode) handleCloseDiffEditor()
 
     if (!sourceMode) {
       // Entering source mode: use the raw file content so that line numbers
@@ -841,7 +894,7 @@ function MarkdownEditorInner() {
       vscode.setState({ ...state, sourceMode: next })
       return next
     })
-  }, [editor, sourceMode, sourceContent, diffMode, closeDiffEditor])
+  }, [editor, sourceMode, sourceContent, diffMode, handleCloseDiffEditor])
 
   // ── Frontmatter change handler ─────────────────────────────────────
   const handleFrontmatterChange = useCallback(
@@ -946,7 +999,25 @@ function MarkdownEditorInner() {
         {diffMode && headContent != null ? (
           <div className="notion-like-editor-layout" data-diff-mode>
             <div className="notion-like-editor-content-column">
-              <DiffEditor currentContent={currentMarkdown} headContent={headContent} />
+              <DiffEditor
+                currentContent={diffContent}
+                headContent={headContent}
+                onChange={(val) => {
+                  setDiffContent(val)
+                  diffContentRef.current = val
+                  currentMarkdownRef.current = val
+                  setCurrentMarkdown(val)
+                  if (debounceTimer.current) clearTimeout(debounceTimer.current)
+                  debounceTimer.current = setTimeout(() => {
+                    sentToHostBufferRef.current.add(val)
+                    if (sentToHostBufferRef.current.size > 10) {
+                      sentToHostBufferRef.current.delete(sentToHostBufferRef.current.values().next().value!)
+                    }
+                    vscode.postMessage({ type: "edit", content: val })
+                  }, 150)
+                }}
+                onClose={handleCloseDiffEditor}
+              />
             </div>
           </div>
         ) : showSource ? (

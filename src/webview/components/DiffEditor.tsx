@@ -1,17 +1,37 @@
 /**
  * In-editor CodeMirror diff view using @codemirror/merge.
  * Shows a unified diff between HEAD content and the current working copy.
+ * The editor is fully editable — users can type directly and use
+ * accept/reject buttons on each diff chunk to manage individual changes.
  */
 
 import { useEffect, useRef } from "react"
-import { EditorView, lineNumbers, highlightSpecialChars, drawSelection } from "@codemirror/view"
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  rectangularSelection,
+} from "@codemirror/view"
 import { EditorState } from "@codemirror/state"
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown"
 import { html } from "@codemirror/lang-html"
-import { unifiedMergeView } from "@codemirror/merge"
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
+import { unifiedMergeView, acceptChunk, rejectChunk } from "@codemirror/merge"
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+} from "@codemirror/language"
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
+import { searchKeymap, highlightSelectionMatches } from "@codemirror/search"
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete"
 import { marksenseTheme, marksenseSyntaxHighlighting } from "./source-editor-theme"
-import { useDiff } from "../DiffContext"
 import { Button } from "@/components/tiptap-ui-primitive/button"
 import { XIcon } from "@/components/tiptap-icons/x-icon"
 
@@ -26,13 +46,6 @@ const diffTheme = EditorView.theme({
   // Deleted chunks (present in HEAD, absent in working copy)
   ".cm-deletedChunk": {
     backgroundColor: "rgba(239, 68, 68, 0.08)",
-  },
-  // Hide cursor and active line in read-only diff
-  ".cm-activeLine": {
-    backgroundColor: "transparent",
-  },
-  ".cm-activeLineGutter": {
-    backgroundColor: "transparent",
   },
 })
 
@@ -61,34 +74,81 @@ function GitBranchIcon({ className }: { className?: string }) {
 interface DiffEditorProps {
   currentContent: string
   headContent: string
+  onChange: (value: string) => void
+  onClose: () => void
 }
 
-export function DiffEditor({ currentContent, headContent }: DiffEditorProps) {
+export function DiffEditor({ currentContent, headContent, onChange, onClose }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
-  const { closeDiffEditor } = useDiff()
+  const onChangeRef = useRef(onChange)
+  const isInternalEdit = useRef(false)
+  const initialContentRef = useRef(currentContent)
+  onChangeRef.current = onChange
 
+  // Create the editor once (HEAD content won't change during a diff session)
   useEffect(() => {
     if (!containerRef.current) return
 
+    const updateListener = EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        isInternalEdit.current = true
+        onChangeRef.current(update.state.doc.toString())
+        requestAnimationFrame(() => {
+          isInternalEdit.current = false
+        })
+      }
+    })
+
     const state = EditorState.create({
-      doc: currentContent,
+      doc: initialContentRef.current,
       extensions: [
         marksenseTheme,
         marksenseSyntaxHighlighting,
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         diffTheme,
         lineNumbers(),
+        highlightActiveLineGutter(),
+        highlightActiveLine(),
         highlightSpecialChars(),
+        history(),
+        foldGutter(),
         drawSelection(),
-        markdown({ base: markdownLanguage, addKeymap: false, extensions: [{ props: [] }] }),
+        rectangularSelection(),
+        indentOnInput(),
+        bracketMatching(),
+        closeBrackets(),
+        highlightSelectionMatches(),
+        markdown({
+          base: markdownLanguage,
+          htmlTagLanguage: html(),
+        }),
         EditorView.lineWrapping,
-        EditorView.editable.of(false),
-        EditorState.readOnly.of(true),
+        keymap.of([
+          ...closeBracketsKeymap,
+          ...defaultKeymap,
+          ...searchKeymap,
+          ...historyKeymap,
+          ...foldKeymap,
+          indentWithTab,
+        ]),
+        updateListener,
         unifiedMergeView({
           original: headContent,
           syntaxHighlightDeletions: true,
-          mergeControls: false,
+          mergeControls: (type, action) => {
+            const btn = document.createElement("button")
+            btn.name = type
+            btn.onmousedown = action
+            if (type === "accept") {
+              btn.title = "Accept (keep current)"
+              btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+            } else {
+              btn.title = "Reject (revert to HEAD)"
+              btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+            }
+            return btn
+          },
         }),
       ],
     })
@@ -100,7 +160,21 @@ export function DiffEditor({ currentContent, headContent }: DiffEditorProps) {
       view.destroy()
       viewRef.current = null
     }
-  }, [currentContent, headContent])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headContent])
+
+  // Sync external content updates (e.g. file watcher echoes) without recreating the editor
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || isInternalEdit.current) return
+    const currentDoc = view.state.doc.toString()
+    if (currentDoc === currentContent) return
+    const cursorPos = Math.min(view.state.selection.main.head, currentContent.length)
+    view.dispatch({
+      changes: { from: 0, to: currentDoc.length, insert: currentContent },
+      selection: { anchor: cursorPos },
+    })
+  }, [currentContent])
 
   return (
     <div className="diff-editor-wrapper">
@@ -112,7 +186,7 @@ export function DiffEditor({ currentContent, headContent }: DiffEditorProps) {
         <Button
           type="button"
           data-style="ghost"
-          onClick={closeDiffEditor}
+          onClick={onClose}
           aria-label="Close diff"
           tooltip="Close diff view"
         >

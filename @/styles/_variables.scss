@@ -465,3 +465,25 @@
   background-color: rgba(239, 68, 68, 0.12);
 }
 
+/* Merge control buttons (accept/reject per diff chunk) */
+.diff-editor-container .cm-deletedChunk .cm-chunkButtons {
+  inset-inline-end: 22px;
+  margin-top: -25px;
+}
+
+.diff-editor-container .cm-deletedChunk button {
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.diff-editor-container .cm-deletedChunk button:hover {
+  opacity: 1;
+}
+
