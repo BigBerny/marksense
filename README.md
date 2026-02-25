@@ -11,19 +11,16 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/BigBerny/marksense/main/screenshot.png" alt="Marksense editor screenshot" width="800" />
 </p>
-
 ## Features
 
 - **Notion-like editing** — full block-based editor with slash commands, drag & drop, floating toolbars, and rich formatting
-- **Markdown round-trip** — opens `.md` files, edits in rich text, saves back as clean Markdown.
-- **Instant auto-save** — every edit syncs to the file automatically (configurable debounce)
-- **Offline-first AI** — spellcheck and sentence completion run locally via WASM, no network or API token needed; grammar correction available with a [Typewise](https://www.typewise.app) API token
-- **Inline predictions** — sentence completion powered by a local model (English) or [Typewise](https://www.typewise.app) cloud API
+- **Instant autocorrect** — spellcheck runs locally via WASM, no network or API token needed; grammar correction available with a [Typewise](https://www.typewise.app) API token
+- **Inline predictions** — sentence completion powered by [Typewise](https://www.typewise.app) cloud API
+- **Interactive tables** — use toggleable checkboxes and dropdowns for select or multiselect options, all within valid Markdown.
+- **Frontmatter panel** — edit document metadata (YAML frontmatter) within the UI
 - **Image upload** — drag & drop or click to upload images; files are saved to an `images/` folder next to the Markdown file and rendered inline
 - **Git diff viewer** — inline change highlighting against the last commit
-- **Frontmatter panel** — edit YAML frontmatter as key-value pairs
 - **Dark / light mode** — follows your VS Code theme
-- **Table checkboxes** — use `[ ]` / `[x]` inside table cells for interactive, toggleable checkboxes
 - **Emoji, mentions, tables, task lists, code blocks, math, and more**
 
 ## Installation
@@ -136,28 +133,30 @@ You can define typed columns for any Markdown table by placing a `<TableConfig>`
 ```markdown
 
 <TableConfig
-  status={["Todo", "In Progress", "Done"]}
-  priority={{ options: ["High", "Medium", "Low"], nullable: true }}
-  tags={{ multi: ["bug", "feature", "docs"] }}
-  done="boolean"
+  Status={["Todo", "In Progress", "Done"]}
+  Priority={{ options: ["High", "Medium", "Low"], nullable: true }}
+  Tags={{ multi: ["bug", "feature", "docs"] }}
+  "Internal only"="boolean"
 />
 
-| Task        | status | priority | tags        | done  |
-| ----------- | ------ | -------- | ----------- | ----- |
-| Fix login   | Done   | High     | bug         | true  |
-| Add search  | Todo   | Medium   | feature     | false |
+| Task       | Status | Priority | Tags    | Internal only |
+| ---------- | ------ | -------- | ------- | ------------- |
+| Fix login  | Done   | High     | bug     | true          |
+| Add search | Todo   | Medium   | feature | false         |
 ```
+
+Prop names are matched to column headers case-insensitively. Column names that contain spaces must be quoted (e.g. `"Internal only"`).
 
 #### Column types
 
 | Type | Syntax | Description |
 | --- | --- | --- |
-| **Single select** | `col={["A", "B", "C"]}` | Dropdown with predefined options |
-| **Single select (nullable)** | `col={{ options: ["A", "B"], nullable: true }}` | Same as above, with a "Clear" action |
-| **Multi-select** | `col={{ multi: ["A", "B", "C"] }}` | Checkbox menu; values stored comma-separated |
-| **Multi-select (nullable)** | `col={{ options: ["A", "B"], multi: true, nullable: true }}` | Same as above, with a "Clear all" action |
-| **Boolean** | `col="boolean"` | Toggleable checkbox (`true` / `false`) |
-| **Boolean (nullable)** | `col={{ type: "boolean", nullable: true }}` | Cycles through empty → `true` → `false` |
+| **Single select** | `"Col"={["A", "B", "C"]}` | Dropdown with predefined options |
+| **Single select (nullable)** | `"Col"={{ options: ["A", "B"], nullable: true }}` | Same as above, with a "Clear" action |
+| **Multi-select** | `"Col"={{ multi: ["A", "B", "C"] }}` | Checkbox menu; values stored comma-separated |
+| **Multi-select (nullable)** | `"Col"={{ options: ["A", "B"], multi: true, nullable: true }}` | Same as above, with a "Clear all" action |
+| **Boolean** | `"Col"="boolean"` | Toggleable checkbox (`true` / `false`) |
+| **Boolean (nullable)** | `"Col"={{ type: "boolean", nullable: true }}` | Cycles through empty → `true` → `false` |
 
 The `<TableConfig>` tag is stored in the Markdown file and preserved across saves.
 

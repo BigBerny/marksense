@@ -1,4 +1,10 @@
-# Changelog
+# Changeling
+
+## 3.2.4 — 2026-02-25
+
+### Improved
+
+- Update TableConfig documentation with capitalized column names and case-insensitive matching notes
 
 ## 3.2.3 — 2026-02-24
 
@@ -54,7 +60,7 @@
 
 - Add offline Typewise SDK integration for spell-check and sentence predictions in both rich and source editors
 - Add AI provider settings to configure spell-check and prediction behavior per workspace
-- Add multi-language support for Typewise corrections
+- Add Typewise correction support for English and German
 
 ### Improved
 
